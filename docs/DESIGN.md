@@ -36,6 +36,7 @@ ChatApp/
 ├── docs/
 ├── docker-compose.yml
 ├── .env                          # mật khẩu DB, JWT secret (không commit)
+├── .env.example                  # mẫu .env có đủ tên biến, giá trị giả (commit)
 ├── infra/
 │   ├── postgres/init.sql         # tạo 4 database
 │   ├── nginx/nginx.conf          # load balancing chat-service
