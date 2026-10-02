@@ -37,6 +37,23 @@
 - Không có foreign key giữa các database của các service khác nhau.
 - Dùng `async/await` cho mọi thao tác I/O.
 - Cấu hình (connection string, Kafka, Redis) đặt trong `appsettings.json` và biến môi trường Docker, không hard-code.
+- Giá trị bí mật (mật khẩu DB, JWT secret) KHÔNG để trong `appsettings*.json`: chạy local dùng user-secrets, chạy Docker dùng biến môi trường từ `.env`.
+
+## Secret khi chạy local (user-secrets dùng chung)
+- `backend/Directory.Build.props` đặt `<UserSecretsId>chatapp-dev</UserSecretsId>` cho MỌI project dưới `backend/` → cả 5 project đọc chung một kho `%APPDATA%\Microsoft\UserSecrets\chatapp-dev\secrets.json`. **Không khai báo `UserSecretsId` riêng trong .csproj nào** (sẽ tách kho, gây lệch secret).
+- `Jwt:Secret` chỉ đặt MỘT lần, mọi service (Gateway, Identity, Group, Chat, Notification) tự dùng chung. Secret thiếu hoặc < 32 byte → service dừng ngay khi khởi động (`JwtOptions.Validate()`).
+- `Jwt:Issuer`, `Jwt:Audience`, `Jwt:ExpiryMinutes` có mặc định trong `ChatApp.Common/Auth/JwtOptions.cs`; không lặp lại trong appsettings từng service.
+- Mỗi service một connection string riêng tên `ConnectionStrings:<Tên>Db` (`IdentityDb`, `GroupDb`, `ChatDb`, `NotificationDb`) nên dùng chung kho không đè nhau.
+- Thiết lập (PowerShell, tại thư mục gốc; `--project` trỏ project nào cũng được vì cùng kho):
+  ```powershell
+  $p = "backend/src/Services/Identity/ChatApp.IdentityService"
+  $bytes = New-Object byte[] 64; [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+  dotnet user-secrets set "Jwt:Secret" ([Convert]::ToBase64String($bytes)) --project $p
+  dotnet user-secrets set "ConnectionStrings:IdentityDb" "Host=localhost;Port=5432;Database=identity_db;Username=chatapp;Password=<POSTGRES_PASSWORD trong .env>" --project $p
+  # Phần sau thêm tương tự: ConnectionStrings:GroupDb (group_db), ChatDb (chat_db), NotificationDb (notification_db)
+  dotnet user-secrets list --project $p
+  ```
+- Khi chạy Docker (lúc viết Dockerfile): docker-compose truyền `Jwt__Secret=${JWT_SECRET}` từ `.env` cho mọi container → vẫn một nguồn duy nhất.
 
 ## Lệnh thường dùng
 - Chạy hạ tầng: `docker compose up -d`

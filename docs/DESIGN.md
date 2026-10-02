@@ -44,6 +44,7 @@ ChatApp/
 ├── scripts/                      # script test (bắn 200 tin, gửi trùng...)
 ├── backend/
 │   ├── ChatApp.sln
+│   ├── Directory.Build.props     # UserSecretsId chung "chatapp-dev" cho mọi project (JWT secret không lệch)
 │   └── src/
 │       ├── BuildingBlocks/
 │       │   ├── ChatApp.Contracts/      # hợp đồng dùng chung

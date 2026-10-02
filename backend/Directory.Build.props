@@ -1,0 +1,11 @@
+<Project>
+  <!--
+    MSBuild tự áp file này cho MỌI project nằm dưới thư mục backend/.
+    Dùng chung một kho user-secrets cho cả 5 service để Jwt:Secret không bị lệch.
+    Kho nằm ở: %APPDATA%\Microsoft\UserSecrets\chatapp-dev\secrets.json
+    KHÔNG khai báo UserSecretsId riêng trong .csproj nào.
+  -->
+  <PropertyGroup>
+    <UserSecretsId>chatapp-dev</UserSecretsId>
+  </PropertyGroup>
+</Project>
