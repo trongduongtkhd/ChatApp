@@ -7,7 +7,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 1 | Docker Compose hạ tầng | ✅ Xong |
 | 2 | identity-service | ✅ Xong |
 | 3 | API Gateway | ✅ Xong |
-| 4 | group-service | ⬜ |
+| 4 | group-service | ✅ Xong |
 | 5 | Kafka events | ⬜ |
 | 6 | gRPC | ⬜ |
 | 7 | chat-service | ⬜ |
@@ -69,6 +69,34 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Gateway chưa chạy trong Docker; khi viết Dockerfile, ghi đè địa chỉ cluster bằng biến môi trường `ReverseProxy__Clusters__<tên>__Destinations__d1__Address`.
   - Phần 8 đổi cluster `chat` sang địa chỉ Nginx.
   - Token trong query string có thể lộ vào access log của proxy → chỉ áp dụng cho `/hubs`, token hạn ngắn.
+
+### Phần 4 – group-service: CRUD nhóm, thành viên, Optimistic Locking
+- **Đã làm:** 8 endpoint REST (DESIGN mục 5) ở port 5002, gọi qua Gateway 5000. 3 bảng trong `group_db`: `groups`, `group_members` (PK kép, FK cascade tới groups), `user_snapshots`. Migration tự áp khi khởi động. Secret `ConnectionStrings:GroupDb` trong kho chung.
+- **File chính:**
+  - `GroupService/Entities/Group.cs`: `[Timestamp] uint Version` → cột hệ thống `xmin`.
+  - `GroupService/Data/GroupDbContext.cs`: PK `(group_id, user_id)`, FK cascade (cùng DB), `Role` lưu dạng chữ, KHÔNG FK cho `OwnerId`/`UserId` (khác DB).
+  - `GroupService/Services/GroupManagementService.cs`: toàn bộ nghiệp vụ + phân quyền; `UpdateAsync` đặt `OriginalValue` của Version rồi bắt `DbUpdateConcurrencyException` → 409; `AddMemberAsync` kiểm tra `user_snapshots`, bắt 23505.
+  - `GroupService/Services/ServiceResult.cs` + `Controllers/ServiceResultExtensions.cs`: đổi lỗi nghiệp vụ sang 400/403/404/409.
+  - `Controllers/GroupsController.cs`, `GroupMembersController.cs`, `UserSearchController.cs` (ràng buộc route `{groupId:guid}`).
+  - `scripts/seed-user-snapshots.ps1` (tạm), `scripts/test-optimistic-lock.ps1` (demo).
+- **Khái niệm → chương:**
+  - Database per service, không FK chéo DB → service tự kiểm tra tính hợp lệ của `UserId` qua bản sao → **Chương 2**.
+  - `user_snapshots` = bản sao dữ liệu của service khác, eventual consistency (thành viên hiện `displayName = null` khi bản sao chưa có) → **Chương 2**.
+  - Lost update; Pessimistic vs Optimistic Locking; `xmin` (mã giao dịch ghi dòng lần cuối, không phải bộ đếm riêng nên version nhảy 775 → 780); `UPDATE ... WHERE xmin = @v` → 0 dòng → 409 → **Chương 6**.
+  - Transaction cục bộ: tạo nhóm + Owner trong 1 `SaveChangesAsync` → **Chương 6**.
+  - PK kép chặn thêm trùng thành viên khi 2 request đồng thời (giống unique index ở Phần 2) → **Chương 6**.
+  - Phân quyền theo dữ liệu (403) khác xác thực (401) → **Chương 5**.
+  - URI có ràng buộc kiểu `{groupId:guid}` → **Chương 5**.
+- **Cách demo:**
+  1. Chạy identity, group, Gateway. `.\scripts\seed-user-snapshots.ps1` → thấy user trong `user_snapshots`.
+  2. `.\scripts\test-optimistic-lock.ps1` → in "Request A: 200 / Request B: 409" (bên thắng ngẫu nhiên giữa các lần chạy), dữ liệu cuối chỉ là của bên thắng.
+  3. `docker exec postgres psql -U chatapp -d group_db -c "select name, xmin from groups"` trước/sau khi sửa → xmin đổi.
+- **Kết quả đã kiểm tra (qua Gateway):** tạo 201 (thiếu tên 400); người ngoài xem chi tiết 403; nhóm không tồn tại 404; `/api/groups/abc` 404; sửa đúng version 200 (version mới), version cũ 409, thiếu version 400, không phải Owner 403; xóa nhóm 204 và cascade members; thêm thành viên 201 / trùng 409 / GUID không có trong snapshot 404 / Member thêm người 403; Owner tự rời 400; thành viên tự rời 204; Member xóa người khác 403; tìm `q=an` ra 2 user, `q=%` ra rỗng; script lock chạy 3 lần đều 200 + 409.
+- **Lưu ý cho báo cáo:**
+  - **`scripts/seed-user-snapshots.ps1` là công cụ test TẠM**, cố tình đọc chéo `identity_db` → vi phạm database per service; Phần 5 thay bằng Kafka `identity.user-registered`. Minh họa: không có sự kiện thì bản sao chỉ đồng bộ được bằng tay.
+  - Chưa phát Kafka: có 4 chỗ `TODO Phần 5` trong `GroupManagementService` (tạo nhóm, xóa nhóm, thêm, xóa thành viên).
+  - Báo trước Phần 5: lưu DB và phát Kafka không chung một transaction được (dual write) → cần bàn khi làm Kafka.
+  - Vì sao 2 PUT đồng thời không cùng thắng: PostgreSQL khóa dòng khi UPDATE; request sau chờ request trước commit, rồi kiểm tra lại `WHERE xmin = @v` → `xmin` đã đổi → 0 dòng. Optimistic Locking ở mức ứng dụng dựa trên khóa dòng rất ngắn của DB, không giữ khóa trong lúc người dùng đang sửa form.
 
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)
