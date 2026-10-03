@@ -39,6 +39,23 @@ public static class JwtAuthenticationExtensions
                     ClockSkew = TimeSpan.FromSeconds(30),
                     NameClaimType = ChatAppClaims.UserName
                 };
+
+                // Trình duyệt không cho gắn header Authorization khi mở WebSocket,
+                // nên SignalR client gửi token qua query ?access_token=...
+                // Chỉ chấp nhận cách này với đường dẫn /hubs (token trong URL dễ lộ vào log).
+                options.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        var accessToken = context.Request.Query["access_token"];
+                        if (!string.IsNullOrEmpty(accessToken) &&
+                            context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                        {
+                            context.Token = accessToken;
+                        }
+                        return Task.CompletedTask;
+                    }
+                };
             });
 
         services.AddAuthorization();
