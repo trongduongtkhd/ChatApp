@@ -6,4 +6,22 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Thư viện đọc/ghi dữ liệu Protobuf (nhị phân) cho các message sinh ra. -->
+    <PackageReference Include="Google.Protobuf" Version="3.36.2" />
+    <!-- Kiểu nền của gRPC: ClientBase (phía gọi), ServerCallContext, RpcException, StatusCode. -->
+    <PackageReference Include="Grpc.Core.Api" Version="2.84.0" />
+    <!-- Trình biên dịch protoc: sinh code C# từ .proto lúc build, không đóng gói theo project. -->
+    <PackageReference Include="Grpc.Tools" Version="2.84.0">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Both = sinh cả GroupMembershipBase (group-service kế thừa làm server)
+         lẫn GroupMembershipClient (chat-service dùng để gọi). Một hợp đồng, hai phía dùng chung. -->
+    <Protobuf Include="Protos\group_membership.proto" GrpcServices="Both" />
+  </ItemGroup>
+
 </Project>

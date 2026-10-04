@@ -9,7 +9,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 3 | API Gateway | ✅ Xong |
 | 4 | group-service | ✅ Xong |
 | 5 | Kafka events | ✅ Xong |
-| 6 | gRPC | ⬜ |
+| 6 | gRPC | ✅ Xong |
 | 7 | chat-service | ⬜ |
 | 8 | Scale + Backplane | ⬜ |
 | 9 | notification-service | ⬜ |
@@ -146,6 +146,38 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Log SQL của EF hạ xuống `Warning` ở identity/group (nếu không, câu polling outbox in ra mỗi giây).
   - Khi viết Dockerfile: `Kafka__BootstrapServers=kafka:29092`; service nên `depends_on: kafka-init: condition: service_completed_successfully`.
   - User đăng ký trước Phần 5 (`duong`, `lan`, `lan1`, `minh` do script seed) vẫn còn trong `user_snapshots`; không có sự kiện tương ứng trong Kafka.
+
+### Phần 6 – gRPC: chat-service → group-service
+- **Đã làm:** group-service là gRPC server (`CheckMembership`, `GetMemberIds`) ở port **5012 chỉ HTTP/2**, REST vẫn ở 5002 chỉ HTTP/1.1 (cấu hình `Kestrel:Endpoints` trong `appsettings.json`, bỏ `applicationUrl` ở launchSettings). chat-service là gRPC client, có lớp bọc đặt deadline 3 giây. Endpoint **tạm** `GET /debug/membership` ở chat-service (chỉ Development) để demo khi chưa có hub → **xóa ở Phần 7**.
+- **File chính:**
+  - `Contracts/Protos/group_membership.proto` (đúng DESIGN mục 5, `csharp_namespace = ChatApp.Contracts.Grpc`); `Contracts.csproj`: `Google.Protobuf`, `Grpc.Core.Api`, `Grpc.Tools`, `<Protobuf ... GrpcServices="Both" />` → code sinh ở `obj/Debug/net10.0/Protos/` (`GroupMembership.cs` = message, `GroupMembershipGrpc.cs` = `GroupMembershipBase` + `GroupMembershipClient`).
+  - `GroupService/Grpc/GroupMembershipGrpcService.cs`: kế thừa `GroupMembershipBase`, GUID sai → `RpcException(InvalidArgument)`, dùng `context.CancellationToken`.
+  - `GroupService/Program.cs`: `AddGrpc()`, `MapGrpcService<...>().RequireHost("*:5012")`.
+  - `ChatService/Grpc/GroupMembershipClient.cs`: đổi Guid ↔ string, `deadline` từ `GrpcServices:DeadlineSeconds`.
+  - `ChatService/Program.cs`: `AddGrpcClient` (`Grpc.Net.ClientFactory`), địa chỉ `GrpcServices:GroupService`; endpoint debug đổi status gRPC → HTTP (400/503/504).
+  - `scripts/test-grpc.ps1`.
+- **Khái niệm → chương:**
+  - RPC: gọi hàm ở máy khác như hàm cục bộ, nhưng có lỗi mạng/timeout → không trong suốt hoàn toàn → **Chương 4**.
+  - Protobuf/IDL: hợp đồng `.proto` sinh code cho 2 phía (stub), dữ liệu nhị phân, số hiệu field → **Chương 4**.
+  - HTTP/2: multiplexing nhiều lời gọi trên 1 kết nối TCP; lần gọi đầu ~300 ms (mở kết nối), sau đó ~5 ms (dùng lại kết nối) → **Chương 4**.
+  - REST (client ngoài) vs gRPC (service↔service cần trả lời ngay) vs Kafka (thông báo không chờ) → **Chương 2, 4**.
+  - gRPC đọc thẳng dữ liệu gốc → nhất quán mạnh (thêm thành viên là thấy ngay), khác với bản sao qua Kafka (eventual) → **Chương 2**.
+  - Đổi lại: phụ thuộc lúc chạy (temporal coupling) – group-service chết thì chat-service không kiểm tra được → Phần 7 thêm Redis cache, Phần 11 thêm Polly → **Chương 2, 8**.
+  - Deadline + status code (`InvalidArgument`, `Unavailable`, `DeadlineExceeded`) = phát hiện lỗi bằng timeout → **Chương 8**.
+  - Địa chỉ service qua cấu hình (`localhost:5012` local, `group-service:5012` qua Docker DNS) → **Chương 5**.
+  - API nội bộ: không qua Gateway, không JWT, không publish port ra ngoài khi chạy Docker → **Chương 2, 5**.
+- **Cách demo:**
+  1. Chạy identity, group, Gateway, chat (5003) → log group-service: `Now listening on: http://localhost:5012` và `:5002`.
+  2. `.\scripts\test-grpc.ps1` → Owner `True`, người ngoài `False`, vừa thêm → `True` ngay, xóa nhóm → `False` + `memberIds = 0`.
+  3. `docker pause postgres` → `curl.exe -s "http://localhost:5003/debug/membership?groupId=<guid>&userId=<guid>"` → `DeadlineExceeded` sau ~3000 ms → `docker unpause postgres`.
+  4. Tắt group-service → gọi lại → lỗi (xem lưu ý Windows bên dưới) → bật lại → tự gọi được, không cần khởi động lại chat-service.
+  5. (Tùy chọn) Postman → New → gRPC → `localhost:5012`, import file `.proto`, gọi trực tiếp; `group_id = "abc"` → `INVALID_ARGUMENT`.
+- **Kết quả đã kiểm tra:** script đúng cả 4 trường hợp; DB treo → `DeadlineExceeded` 3033 ms; client trỏ nhầm sang 5002 → `HTTP_1_1_REQUIRED` (port REST từ chối HTTP/2); HTTP/1.1 vào 5012 → 400; group-service tắt, deadline 3 s → `DeadlineExceeded` ~3015 ms; deadline 10 s → `Unavailable` sau 4152 ms; bật lại group-service → gọi được ngay; `test-optimistic-lock.ps1` vẫn 200 + 409.
+- **Lưu ý cho báo cáo:**
+  - **Windows báo "port đóng" chậm**: kết nối tới port không có ai nghe mất ~2 giây/địa chỉ (Windows gửi lại SYN), `localhost` thử cả `::1` và `127.0.0.1` → ~4 giây > deadline 3 giây → ra `DeadlineExceeded` thay vì `Unavailable`. Linux/Docker từ chối ngay. Ví dụ cho việc phía gọi **không phân biệt được** "server chết" với "server chậm" (Chương 8).
+  - gRPC không có xác thực (tin mạng nội bộ). Production nên dùng mTLS hoặc token giữa các service.
+  - Proto sinh "Both" trong Contracts nên chat-service cũng có lớp Base (không dùng) – đổi lại chỉ một nơi sinh code, không service nào tham chiếu service khác.
+  - Khi viết Dockerfile: `GrpcServices__GroupService=http://group-service:5012`; `Kestrel__Endpoints__Rest__Url=http://+:5002`, `Kestrel__Endpoints__Grpc__Url=http://+:5012` (localhost trong container không nhận kết nối từ container khác).
 
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)

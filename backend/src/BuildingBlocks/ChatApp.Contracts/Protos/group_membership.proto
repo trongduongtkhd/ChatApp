@@ -1,0 +1,19 @@
+// Hợp đồng gRPC nội bộ: chat-service (client) hỏi group-service (server, port 5012).
+// Viết MỘT lần ở Contracts; Grpc.Tools sinh code C# cho cả 2 phía khi build.
+// Số sau mỗi field (= 1, = 2) là "số hiệu field" trong dữ liệu nhị phân: không được đổi sau khi đã dùng.
+syntax = "proto3";
+
+option csharp_namespace = "ChatApp.Contracts.Grpc";
+
+package group_membership;
+
+service GroupMembership {
+  rpc CheckMembership (CheckMembershipRequest) returns (CheckMembershipReply);
+  rpc GetMemberIds (GetMemberIdsRequest) returns (GetMemberIdsReply);
+}
+
+// GUID truyền dạng chuỗi vì Protobuf không có kiểu GUID.
+message CheckMembershipRequest { string group_id = 1; string user_id = 2; }
+message CheckMembershipReply { bool is_member = 1; }
+message GetMemberIdsRequest { string group_id = 1; }
+message GetMemberIdsReply { repeated string user_ids = 1; }

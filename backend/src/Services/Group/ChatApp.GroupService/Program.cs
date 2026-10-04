@@ -2,6 +2,7 @@ using ChatApp.Common.Auth;
 using ChatApp.Common.Kafka;
 using ChatApp.Common.Outbox;
 using ChatApp.GroupService.Data;
+using ChatApp.GroupService.Grpc;
 using ChatApp.GroupService.Messaging;
 using ChatApp.GroupService.Services;
 using Microsoft.EntityFrameworkCore;
@@ -25,6 +26,9 @@ builder.Services.AddChatAppOutbox<GroupDbContext>(builder.Configuration);
 builder.Services.AddChatAppKafkaConsumer<UserRegisteredConsumer>(builder.Configuration);
 
 builder.Services.AddScoped<GroupManagementService>();
+
+// gRPC server cho chat-service hỏi thành viên nhóm (Phần 6).
+builder.Services.AddGrpc();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -63,5 +67,9 @@ app.UseAuthorization();
 
 app.MapGet("/", () => "ChatApp.GroupService is running");
 app.MapControllers();
+
+// Chỉ nhận gRPC ở port 5012 (endpoint "Grpc" trong appsettings, HTTP/2). Port REST 5002 không phục vụ gRPC.
+// Không [Authorize]: API nội bộ, tin tưởng mạng nội bộ; khi chạy Docker không publish port này ra ngoài.
+app.MapGrpcService<GroupMembershipGrpcService>().RequireHost("*:5012");
 
 app.Run();
