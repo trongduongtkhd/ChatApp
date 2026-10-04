@@ -6,6 +6,7 @@
 - Angular chỉ gọi qua **API Gateway (YARP)**. Gateway là cửa vào giữa client và hệ thống, KHÔNG dùng để các service gọi nhau.
 - Service gọi nhau: **gRPC** (cần trả lời ngay) hoặc **Kafka** (thông báo, không chờ).
 - Dữ liệu giữa các service nhất quán theo kiểu **eventual consistency**: service sở hữu dữ liệu phát sự kiện, service khác tự cập nhật bản sao.
+- Phát sự kiện bằng **Transactional Outbox**: service KHÔNG gửi Kafka ngay trong request. Event được ghi vào bảng `outbox_messages` cùng transaction với dữ liệu nghiệp vụ, rồi một BackgroundService (`OutboxPublisher`) đọc bảng và đẩy lên Kafka. Nhờ vậy Kafka có tạm chết thì event cũng không bị mất (tránh lỗi dual write).
 
 ```
 Angular ──REST/SignalR──► Nginx ──► API Gateway (YARP)
@@ -52,6 +53,7 @@ ChatApp/
 │       │   │   └── Protos/group_membership.proto
 │       │   └── ChatApp.Common/         # code hạ tầng dùng chung
 │       │       ├── Kafka/              # KafkaProducer, KafkaConsumerBase (BackgroundService)
+│       │       ├── Outbox/             # OutboxMessage, cấu hình bảng outbox_messages, OutboxPublisher (BackgroundService)
 │       │       ├── Auth/               # extension cấu hình JWT
 │       │       └── Logging/            # extension cấu hình Serilog
 │       ├── Gateway/ChatApp.Gateway/
@@ -167,7 +169,18 @@ Redis của chat-service:
 **group_member_snapshots**: GroupId, UserId (PK kép). Bản sao từ sự kiện group.member-*.
 **processed_events**: EventId (PK), ProcessedAt. Idempotent Consumer (Kafka at-least-once).
 
+### outbox_messages (có trong identity_db, group_db, chat_db: mỗi service phát sự kiện giữ outbox riêng trong DB của mình)
+**outbox_messages**: Id (uuid PK, = `eventId` của sự kiện), Topic (varchar 200), Key (varchar 200), EventType (varchar 100), Payload (jsonb), OccurredAt (timestamptz), ProcessedAt (timestamptz, null = chưa gửi), Attempts (int), LastError (text, null).
+Index một phần trên (OccurredAt, Id) `WHERE processed_at IS NULL` để tìm nhanh các dòng chưa gửi.
+Cấu hình bảng viết một lần trong `ChatApp.Common/Outbox`, mỗi DbContext gọi `modelBuilder.AddOutboxMessages()`.
+
 ## 4. Kafka
+
+**Phát sự kiện (Transactional Outbox):**
+1. Service nghiệp vụ thêm dòng `outbox_messages` vào DbContext, rồi gọi MỘT `SaveChangesAsync` → dữ liệu và event cùng commit hoặc cùng hủy.
+2. `OutboxPublisher<TDbContext>` (BackgroundService) cứ ~1 giây đọc tối đa 100 dòng chưa gửi, theo thứ tự (OccurredAt, Id), bằng `SELECT ... FOR UPDATE SKIP LOCKED` (để khi chạy 2 bản service, mỗi dòng chỉ một bản xử lý).
+3. Gửi Kafka thành công → đặt `ProcessedAt`. Gửi lỗi → tăng `Attempts`, ghi `LastError`, dừng lô này (giữ thứ tự), thử lại ở vòng sau.
+4. Gửi xong nhưng sập trước khi ghi `ProcessedAt` → lần sau gửi lại → event có thể TRÙNG (at-least-once). Bên nghe phải idempotent.
 
 Mọi sự kiện có 3 field chung: `eventId` (GUID của sự kiện), `eventType`, `occurredAt`.
 
@@ -178,7 +191,9 @@ Mọi sự kiện có 3 field chung: `eventId` (GUID của sự kiện), `eventT
 | group.member-removed | group | chat, notification | groupId | 1 |
 | chat.message-sent | chat | notification | groupId | 3 |
 
-Consumer group đặt trùng tên service (group-service, chat-service, notification-service).
+Consumer group đặt trùng tên service (group-service, chat-service, notification-service), cấu hình ở `Kafka:ConsumerGroupId`.
+
+Topic được tạo bởi container chạy một lần `kafka-init` trong docker-compose (`--if-not-exists`, đúng số partition ở bảng trên). Kafka tắt tự tạo topic (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`).
 
 Payload:
 - `identity.user-registered`: userId, userName, displayName
@@ -251,9 +266,9 @@ SignalR Hub `/hubs/notifications`:
 2. Kiểm tra thành viên: Redis cache → nếu trống gọi gRPC (Polly bảo vệ).
 3. messageId đã tồn tại → bỏ qua (idempotency).
 4. Redis INCR chat:seq:{groupId} → sequenceNumber.
-5. Lưu PostgreSQL.
+5. Lưu PostgreSQL: dòng `messages` + dòng `outbox_messages` (chat.message-sent, key groupId) trong cùng một transaction.
 6. Gửi ReceiveMessage tới phòng SignalR của nhóm (Redis Backplane để mọi bản đều phát).
-7. Phát chat.message-sent (key groupId).
+7. `OutboxPublisher` đẩy chat.message-sent lên Kafka (chạy nền, không làm chậm việc gửi tin).
 8. notification-service: kiểm tra processed_events → tăng UnreadCount (trừ người gửi) → UnreadCountChanged.
 
 ## 7. Công nghệ theo chương
@@ -264,6 +279,6 @@ SignalR Hub `/hubs/notifications`:
 | 3. Tiến trình & luồng | async/await, BackgroundService (Kafka consumer), Hangfire, Docker Compose |
 | 4. Trao đổi thông tin | REST, gRPC, Kafka, Redis cache, SignalR + Redis Backplane |
 | 5. Định danh | GUID v7, JWT, SignalR ConnectionId, Docker DNS, URI |
-| 6. Đồng bộ hóa | Redis INCR (số thứ tự), Kafka partition key, idempotency, Optimistic Locking (xmin) |
+| 6. Đồng bộ hóa | Redis INCR (số thứ tự), Kafka partition key, idempotency, Optimistic Locking (xmin), Transactional Outbox (`FOR UPDATE SKIP LOCKED`) |
 | 7. Sao lưu | PostgreSQL streaming replication, pg_dump + Hangfire, Redis AOF, Kafka retention/replay |
 | 8. Chịu lỗi | Polly, Nginx load balancing, Health Checks, Serilog + Seq, SignalR auto reconnect, consumer group |

@@ -1,3 +1,5 @@
+using ChatApp.Common.Outbox;
+using ChatApp.Contracts.Events;
 using ChatApp.GroupService.Data;
 using ChatApp.GroupService.Dtos;
 using ChatApp.GroupService.Entities;
@@ -22,11 +24,11 @@ public class GroupManagementService(GroupDbContext db)
         group.Members.Add(new GroupMember { UserId = currentUserId, Role = GroupRole.Owner });
 
         db.Groups.Add(group);
-        // Một SaveChangesAsync = một transaction: INSERT groups + INSERT group_members
-        // cùng thành công hoặc cùng bị hủy → không bao giờ có nhóm không có chủ.
-        await db.SaveChangesAsync(ct);
+        AddMemberAddedEvent(group.Id, currentUserId, GroupRole.Owner);
 
-        // TODO Phần 5: phát group.member-added cho Owner.
+        // Một SaveChangesAsync = một transaction: INSERT groups + INSERT group_members + INSERT outbox_messages
+        // cùng thành công hoặc cùng bị hủy → không bao giờ có nhóm không có chủ, hay nhóm mà mất sự kiện.
+        await db.SaveChangesAsync(ct);
 
         return ServiceResult<GroupDto>.Ok(ToDto(group, GroupRole.Owner));
     }
@@ -112,11 +114,19 @@ public class GroupManagementService(GroupDbContext db)
         if (group.OwnerId != currentUserId)
             return ServiceResult.Fail(ServiceError.Forbidden, "Chỉ Owner được xóa nhóm");
 
+        // Phải đọc danh sách thành viên TRƯỚC khi xóa: ON DELETE CASCADE xóa xong thì không còn biết
+        // phải báo member-removed cho những ai (chat, notification cần biết để dọn bản sao của mình).
+        var memberIds = await db.GroupMembers
+            .Where(m => m.GroupId == groupId)
+            .Select(m => m.UserId)
+            .ToListAsync(ct);
+        foreach (var userId in memberIds)
+            AddMemberRemovedEvent(groupId, userId);
+
         // ON DELETE CASCADE: PostgreSQL tự xóa các dòng group_members của nhóm.
+        // DELETE groups + N dòng outbox member-removed trong cùng một transaction.
         db.Groups.Remove(group);
         await db.SaveChangesAsync(ct);
-
-        // TODO Phần 5: phát group.member-removed cho từng thành viên của nhóm.
 
         return ServiceResult.Ok();
     }
@@ -139,6 +149,7 @@ public class GroupManagementService(GroupDbContext db)
 
         var member = new GroupMember { GroupId = groupId, UserId = userId, Role = GroupRole.Member };
         db.GroupMembers.Add(member);
+        AddMemberAddedEvent(groupId, userId, GroupRole.Member);
         try
         {
             await db.SaveChangesAsync(ct);
@@ -146,10 +157,9 @@ public class GroupManagementService(GroupDbContext db)
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: UniqueViolation })
         {
             // 2 request thêm cùng user đến cùng lúc: PK (group_id, user_id) chỉ cho một cái thành công.
+            // Bên thua: transaction bị hủy → dòng outbox cũng không được lưu → không phát member-added trùng.
             return ServiceResult<MemberDto>.Fail(ServiceError.Conflict, "User đã là thành viên nhóm");
         }
-
-        // TODO Phần 5: phát group.member-added.
 
         return ServiceResult<MemberDto>.Ok(
             new MemberDto(userId, snapshot.UserName, snapshot.DisplayName, member.Role.ToString(), member.JoinedAt));
@@ -175,9 +185,8 @@ public class GroupManagementService(GroupDbContext db)
             return ServiceResult.Fail(ServiceError.NotFound, "User không phải thành viên nhóm");
 
         db.GroupMembers.Remove(member);
+        AddMemberRemovedEvent(groupId, userId);
         await db.SaveChangesAsync(ct);
-
-        // TODO Phần 5: phát group.member-removed.
 
         return ServiceResult.Ok();
     }
@@ -197,6 +206,17 @@ public class GroupManagementService(GroupDbContext db)
             .Select(s => new UserSnapshotDto(s.UserId, s.UserName, s.DisplayName))
             .ToListAsync(ct);
     }
+
+    // Transactional Outbox: chỉ THÊM dòng outbox vào DbContext; SaveChangesAsync của nghiệp vụ lưu cùng transaction.
+    // Key = groupId → mọi sự kiện của một nhóm vào cùng partition → bên nghe nhận đúng thứ tự
+    // (vd "thêm A" luôn tới trước "xóa A").
+    private void AddMemberAddedEvent(Guid groupId, Guid userId, GroupRole role) =>
+        db.AddOutboxEvent(KafkaTopics.MemberAdded, groupId.ToString(),
+            new MemberAdded(groupId, userId, role.ToString()));
+
+    private void AddMemberRemovedEvent(Guid groupId, Guid userId) =>
+        db.AddOutboxEvent(KafkaTopics.MemberRemoved, groupId.ToString(),
+            new MemberRemoved(groupId, userId));
 
     private static GroupDto ToDto(Group g, GroupRole myRole) =>
         new(g.Id, g.Name, g.Description, g.OwnerId, myRole.ToString(), g.Version, g.CreatedAt, g.UpdatedAt);

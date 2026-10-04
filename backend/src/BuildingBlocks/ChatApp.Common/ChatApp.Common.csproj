@@ -10,6 +10,14 @@
     <!-- Cho phép dùng các API của ASP.NET Core (authentication, IServiceCollection...) trong class library. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <!-- Client Kafka chính thức của Confluent (bọc thư viện C librdkafka). -->
+    <PackageReference Include="Confluent.Kafka" Version="2.15.1" />
+    <!-- Outbox: cấu hình bảng outbox_messages và đọc/ghi qua DbContext của từng service. -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ChatApp.Contracts\ChatApp.Contracts.csproj" />
   </ItemGroup>
 
 </Project>

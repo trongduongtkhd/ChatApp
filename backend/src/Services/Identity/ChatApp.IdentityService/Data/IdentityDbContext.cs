@@ -1,3 +1,4 @@
+using ChatApp.Common.Outbox;
 using ChatApp.IdentityService.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -25,5 +26,8 @@ public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : Db
             user.HasIndex(u => u.UserName).IsUnique();
             user.HasIndex(u => u.Email).IsUnique();
         });
+
+        // Bảng outbox_messages (cấu hình dùng chung trong ChatApp.Common): sự kiện chờ gửi Kafka.
+        modelBuilder.AddOutboxMessages();
     }
 }

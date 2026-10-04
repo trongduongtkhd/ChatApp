@@ -1,3 +1,4 @@
+using ChatApp.Common.Outbox;
 using ChatApp.GroupService.Entities;
 using Microsoft.EntityFrameworkCore;
 
@@ -44,5 +45,8 @@ public class GroupDbContext(DbContextOptions<GroupDbContext> options) : DbContex
             snapshot.Property(s => s.UserName).HasMaxLength(50).IsRequired();
             snapshot.Property(s => s.DisplayName).HasMaxLength(100).IsRequired();
         });
+
+        // Bảng outbox_messages (cấu hình dùng chung trong ChatApp.Common): sự kiện member-added/removed chờ gửi Kafka.
+        modelBuilder.AddOutboxMessages();
     }
 }

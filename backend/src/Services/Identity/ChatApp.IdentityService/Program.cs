@@ -1,4 +1,5 @@
 using ChatApp.Common.Auth;
+using ChatApp.Common.Outbox;
 using ChatApp.IdentityService.Data;
 using ChatApp.IdentityService.Services;
 using Microsoft.EntityFrameworkCore;
@@ -14,6 +15,9 @@ builder.Services.AddDbContext<IdentityDbContext>(options =>
 
 // Kiểm tra JWT (dùng chung với các service khác) + đăng ký JwtOptions để JwtTokenService tạo token.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+
+// Kafka producer + OutboxPublisher (BackgroundService) đẩy outbox_messages của identity_db lên Kafka.
+builder.Services.AddChatAppOutbox<IdentityDbContext>(builder.Configuration);
 
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<AuthService>();

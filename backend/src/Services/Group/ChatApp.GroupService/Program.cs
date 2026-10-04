@@ -1,5 +1,8 @@
 using ChatApp.Common.Auth;
+using ChatApp.Common.Kafka;
+using ChatApp.Common.Outbox;
 using ChatApp.GroupService.Data;
+using ChatApp.GroupService.Messaging;
 using ChatApp.GroupService.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
@@ -14,6 +17,12 @@ builder.Services.AddDbContext<GroupDbContext>(options =>
 
 // Cùng code kiểm tra JWT với Gateway và identity (ChatApp.Common), cùng secret trong kho chung.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+
+// Kafka producer + OutboxPublisher (BackgroundService) đẩy outbox_messages của group_db lên Kafka.
+builder.Services.AddChatAppOutbox<GroupDbContext>(builder.Configuration);
+
+// Consumer Kafka chạy nền: identity.user-registered → user_snapshots.
+builder.Services.AddChatAppKafkaConsumer<UserRegisteredConsumer>(builder.Configuration);
 
 builder.Services.AddScoped<GroupManagementService>();
 

@@ -8,7 +8,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 2 | identity-service | ✅ Xong |
 | 3 | API Gateway | ✅ Xong |
 | 4 | group-service | ✅ Xong |
-| 5 | Kafka events | ⬜ |
+| 5 | Kafka events | ✅ Xong |
 | 6 | gRPC | ⬜ |
 | 7 | chat-service | ⬜ |
 | 8 | Scale + Backplane | ⬜ |
@@ -78,7 +78,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - `GroupService/Services/GroupManagementService.cs`: toàn bộ nghiệp vụ + phân quyền; `UpdateAsync` đặt `OriginalValue` của Version rồi bắt `DbUpdateConcurrencyException` → 409; `AddMemberAsync` kiểm tra `user_snapshots`, bắt 23505.
   - `GroupService/Services/ServiceResult.cs` + `Controllers/ServiceResultExtensions.cs`: đổi lỗi nghiệp vụ sang 400/403/404/409.
   - `Controllers/GroupsController.cs`, `GroupMembersController.cs`, `UserSearchController.cs` (ràng buộc route `{groupId:guid}`).
-  - `scripts/seed-user-snapshots.ps1` (tạm), `scripts/test-optimistic-lock.ps1` (demo).
+  - `scripts/seed-user-snapshots.ps1` (tạm, **đã xóa ở Phần 5**), `scripts/test-optimistic-lock.ps1` (demo).
 - **Khái niệm → chương:**
   - Database per service, không FK chéo DB → service tự kiểm tra tính hợp lệ của `UserId` qua bản sao → **Chương 2**.
   - `user_snapshots` = bản sao dữ liệu của service khác, eventual consistency (thành viên hiện `displayName = null` khi bản sao chưa có) → **Chương 2**.
@@ -88,7 +88,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Phân quyền theo dữ liệu (403) khác xác thực (401) → **Chương 5**.
   - URI có ràng buộc kiểu `{groupId:guid}` → **Chương 5**.
 - **Cách demo:**
-  1. Chạy identity, group, Gateway. `.\scripts\seed-user-snapshots.ps1` → thấy user trong `user_snapshots`.
+  1. Chạy identity, group, Gateway. Đăng ký user → group-service nhận `identity.user-registered` → thấy user trong `user_snapshots` (từ Phần 5; trước đó dùng script seed tạm).
   2. `.\scripts\test-optimistic-lock.ps1` → in "Request A: 200 / Request B: 409" (bên thắng ngẫu nhiên giữa các lần chạy), dữ liệu cuối chỉ là của bên thắng.
   3. `docker exec postgres psql -U chatapp -d group_db -c "select name, xmin from groups"` trước/sau khi sửa → xmin đổi.
 - **Kết quả đã kiểm tra (qua Gateway):** tạo 201 (thiếu tên 400); người ngoài xem chi tiết 403; nhóm không tồn tại 404; `/api/groups/abc` 404; sửa đúng version 200 (version mới), version cũ 409, thiếu version 400, không phải Owner 403; xóa nhóm 204 và cascade members; thêm thành viên 201 / trùng 409 / GUID không có trong snapshot 404 / Member thêm người 403; Owner tự rời 400; thành viên tự rời 204; Member xóa người khác 403; tìm `q=an` ra 2 user, `q=%` ra rỗng; script lock chạy 3 lần đều 200 + 409.
@@ -98,9 +98,61 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Báo trước Phần 5: lưu DB và phát Kafka không chung một transaction được (dual write) → cần bàn khi làm Kafka.
   - Vì sao 2 PUT đồng thời không cùng thắng: PostgreSQL khóa dòng khi UPDATE; request sau chờ request trước commit, rồi kiểm tra lại `WHERE xmin = @v` → `xmin` đã đổi → 0 dòng. Optimistic Locking ở mức ứng dụng dựa trên khóa dòng rất ngắn của DB, không giữ khóa trong lúc người dùng đang sửa form.
 
+### Phần 5 – Kafka: user-registered, member-added/removed (Transactional Outbox)
+- **Đã làm:** identity phát `identity.user-registered`; group phát `group.member-added` (tạo nhóm → Owner, thêm thành viên) và `group.member-removed` (xóa thành viên, tự rời, xóa nhóm → 1 sự kiện cho MỖI thành viên). group nghe `identity.user-registered` → upsert `user_snapshots`. Phát qua **Transactional Outbox** (bảng `outbox_messages` trong identity_db, group_db). Topic tạo bởi container `kafka-init`; tắt tự tạo topic. Hết toàn bộ `TODO Phần 5`.
+- **File chính:**
+  - `Contracts/Events/`: `IntegrationEvent.cs` (eventId GUID v7, eventType, occurredAt), `UserRegistered.cs`, `MemberAdded.cs`, `MemberRemoved.cs`, `KafkaTopics.cs`.
+  - `Common/Kafka/KafkaProducer.cs`: singleton, `Acks.All`, `EnableIdempotence`, `MessageTimeoutMs = 5000`.
+  - `Common/Kafka/KafkaConsumerBase.cs`: BackgroundService, `Consume()` chạy bằng `Task.Run`, `EnableAutoCommit = false` + `Commit` sau khi xử lý, `AutoOffsetReset.Earliest`, lỗi tạm thời → thử lại mãi, JSON hỏng → bỏ qua (poison message), `Close()` khi tắt.
+  - `Common/Outbox/`: `OutboxMessage.cs`, `OutboxModelBuilderExtensions.cs` (jsonb, partial index), `OutboxDbContextExtensions.cs` (`AddOutboxEvent`), `OutboxPublisher.cs` (polling 1 giây, lô 100, `FOR UPDATE SKIP LOCKED`, lỗi → dừng lô giữ thứ tự), `OutboxServiceCollectionExtensions.cs` (`AddChatAppOutbox<TDbContext>`).
+  - `IdentityService/Services/AuthService.cs`, `GroupService/Services/GroupManagementService.cs`: `AddOutboxEvent` trước `SaveChangesAsync`.
+  - `GroupService/Messaging/UserRegisteredConsumer.cs`: `INSERT ... ON CONFLICT DO UPDATE`.
+  - Migration `AddOutbox` ở identity và group. `docker-compose.yml`: `kafka-init`, `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`.
+  - `scripts/demo-kafka-outbox.ps1`: demo tắt Kafka → đăng ký → bật Kafka → user tự xuất hiện.
+- **Khái niệm → chương:**
+  - Producer/consumer, topic, tách rời theo thời gian (2 bên không cần cùng lúc chạy) → **Chương 4**.
+  - Partition + key: key = groupId/userId → cùng partition → giữ thứ tự; chỉ đảm bảo trong 1 topic (added và removed là 2 topic) → **Chương 6**.
+  - Consumer group + offset lưu trong `__consumer_offsets`; group mới đọc từ đầu (replay) → **Chương 4, 7**.
+  - BackgroundService (OutboxPublisher, consumer) chạy song song request HTTP; Singleton phải tự tạo scope cho DbContext → **Chương 3**.
+  - Dual write và Transactional Outbox: dữ liệu + sự kiện cùng 1 transaction cục bộ → **Chương 2, 6**.
+  - `FOR UPDATE SKIP LOCKED`: loại trừ lẫn nhau giữa nhiều bản publisher không cần khóa phân tán → **Chương 6**.
+  - At-least-once (outbox gửi lại, consumer commit sau xử lý) + idempotent consumer (upsert) → **Chương 6**.
+  - Eventual consistency: độ trễ đo được ~1 giây từ lúc đăng ký đến khi có trong `user_snapshots` → **Chương 2**.
+  - Phát hiện lỗi bằng timeout: producer timeout 5 giây; consumer bị giết đột ngột → Kafka chờ session timeout 45 giây mới chia lại partition; tắt đúng cách (`Close()`) → chia lại ngay → **Chương 8**.
+  - Lỗi tạm thời (thử lại) vs lỗi vĩnh viễn (poison message, bỏ qua; production dùng dead-letter topic) → **Chương 8**.
+- **Cách demo:**
+  1. `docker compose up -d` → `docker compose ps -a`: `kafka-init` `Exited (0)`; `docker exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe` → `chat.message-sent` PartitionCount 3.
+  2. Chạy identity + group → `.\scripts\demo-kafka-outbox.ps1`.
+  3. Tắt group-service (Ctrl+C), đăng ký vài user → `docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group group-service` thấy `LAG` > 0 → bật lại → `LAG = 0`, user xuất hiện.
+  4. Tạo nhóm / thêm / xóa thành viên / xóa nhóm → Kafka UI (http://localhost:8080) xem `group.member-*`: cột Key = groupId.
+- **Kết quả đã kiểm tra:**
+  - Producer: Kafka chạy → OK ~1 giây; Kafka tắt → `Message timed out` sau 5040 ms; message vẫn còn sau khi Kafka khởi động lại (volume).
+  - 2 OutboxPublisher song song, 300 event → Kafka nhận đúng 300, mọi dòng `attempts = 1`.
+  - Kafka tắt: đăng ký vẫn 201 sau ~240–550 ms; outbox `last_error = Local: Message timed out`; bật Kafka → tự gửi bù, user có trong `user_snapshots` ~1 giây sau khi Kafka healthy.
+  - Đăng ký trùng tên / thêm trùng thành viên (409) → KHÔNG có dòng outbox (transaction hủy).
+  - group-service chạy lần đầu → đọc từ offset 0, nhận cả user đăng ký trước khi nó tồn tại.
+  - Gửi lại cùng event 3 lần (cùng eventId) → vẫn 1 dòng `user_snapshots`.
+  - group-service tắt → LAG = 1; bật lại → chỉ đọc offset mới, không đọc lại từ đầu.
+  - Message JSON hỏng → log "Bỏ qua", message sau vẫn xử lý.
+  - Kịch bản nhóm: 3 `MemberAdded` (Owner + 2 Member) và 3 `MemberRemoved` (1 tự rời + 2 khi xóa nhóm), cùng key = groupId, cùng partition 0.
+  - `kafka-init` chạy lại vẫn exit 0; gửi vào topic không tồn tại → lỗi, không tạo topic rác.
+- **Lưu ý cho báo cáo:**
+  - Bảng `outbox_messages` giữ cả dòng đã gửi (tiện demo/tra cứu) → lớn dần; hướng xử lý: job dọn định kỳ (Hangfire, Phần 12).
+  - Chạy 2 bản service: mỗi bản giữ thứ tự trong lô của mình, giữa 2 lô không tuyệt đối. Phần 5 identity/group chạy 1 bản nên không ảnh hưởng.
+  - `added` và `removed` là 2 topic → bên nghe (Phần 7, 9) không được giả định thứ tự giữa chúng.
+  - Xóa nhóm: đọc danh sách thành viên rồi mới xóa; người được thêm đúng giữa 2 bước sẽ không nhận `member-removed` (khe hở rất nhỏ, chấp nhận).
+  - `UserRegisteredConsumer` không cần `processed_events` vì upsert vốn idempotent; Phần 9 (`UnreadCount + 1`) thì BẮT BUỘC cần → điểm so sánh hay.
+  - `jsonb` tự sắp lại thứ tự field JSON → không ảnh hưởng vì bên nghe đọc theo tên.
+  - Log SQL của EF hạ xuống `Warning` ở identity/group (nếu không, câu polling outbox in ra mỗi giây).
+  - Khi viết Dockerfile: `Kafka__BootstrapServers=kafka:29092`; service nên `depends_on: kafka-init: condition: service_completed_successfully`.
+  - User đăng ký trước Phần 5 (`duong`, `lan`, `lan1`, `minh` do script seed) vẫn còn trong `user_snapshots`; không có sự kiện tương ứng trong Kafka.
+
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)
 
 - **Phần 1:** thêm `.env.example` vào thư mục gốc (đã ghi vào cây thư mục DESIGN.md) – để người clone biết cần điền biến nào mà không lộ mật khẩu thật.
 - **Phần 2:** thêm `backend/Directory.Build.props` (đã ghi vào cây thư mục DESIGN.md) – đặt `UserSecretsId` chung `chatapp-dev` cho mọi project, để JWT secret chỉ khai báo một lần, không lệch giữa các service. Thêm `JWT_SECRET` vào `.env.example` cho lúc chạy Docker. Cách thiết lập ghi ở CLAUDE.md mục "Secret khi chạy local".
 - **Phần 2:** login trả thêm `expiresAt` cạnh `accessToken` (để Angular biết khi nào token hết hạn).
+- **Phần 5:** dùng **Transactional Outbox** thay vì gửi Kafka trực tiếp sau `SaveChangesAsync`. Lý do: lưu DB và gửi Kafka là 2 hệ thống, không chung transaction (dual write). Kafka chết đúng lúc → DB đã có user nhưng event mất vĩnh viễn → `user_snapshots` thiếu user mãi mãi. Với outbox, event nằm trong DB cùng transaction, Kafka sống lại thì tự gửi bù. Đã cập nhật DESIGN.md: mục 1 (nguyên tắc), cây thư mục (`ChatApp.Common/Outbox/`), mục 3 (bảng `outbox_messages` ở identity_db, group_db, chat_db), mục 4 (cách phát), mục 6 (luồng gửi tin bước 5, 7), mục 7 (chương 6). Phần dùng chung viết trong `ChatApp.Common/Outbox` để chat-service dùng lại ở Phần 7.
+- **Phần 5:** tạo topic bằng container chạy một lần `kafka-init` trong docker-compose (đúng số partition DESIGN mục 4) thay vì để Kafka tự tạo (tự tạo chỉ có 1 partition). Xóa `scripts/seed-user-snapshots.ps1` vì đã có sự kiện `identity.user-registered`.
+- **Phần 5:** tắt tự tạo topic (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`) – gõ sai tên topic thì báo lỗi ngay thay vì lặng lẽ tạo topic rác. Thêm `Kafka:ConsumerGroupId` vào cấu hình service có consumer (giá trị = tên service theo DESIGN mục 4). Đã ghi vào DESIGN.md mục 4.

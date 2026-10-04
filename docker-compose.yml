@@ -60,6 +60,9 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      # Tắt tự tạo topic: gõ sai tên topic thì báo lỗi ngay, không lặng lẽ tạo topic rác 1 partition.
+      # Topic được tạo có chủ đích bởi container kafka-init bên dưới.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       # Cố định Cluster ID để khởi động lại vẫn dùng được dữ liệu cũ trong volume
       CLUSTER_ID: ${KAFKA_CLUSTER_ID}
@@ -72,6 +75,32 @@ services:
       timeout: 10s
       retries: 10
       start_period: 20s
+    networks:
+      - chatapp-net
+
+  # Container chạy MỘT LẦN: tạo topic theo DESIGN mục 4 rồi thoát (exit 0).
+  # --if-not-exists → chạy lại bao nhiêu lần cũng được (topic đã có thì bỏ qua, không mất dữ liệu).
+  # Số partition: chat.message-sent 3 (chia tải cho nhiều consumer), các topic khác 1.
+  # Replication factor 1 vì chỉ có 1 broker.
+  kafka-init:
+    image: apache/kafka:4.1.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        T=/opt/kafka/bin/kafka-topics.sh
+        B=kafka:29092
+        $$T --bootstrap-server $$B --create --if-not-exists --topic identity.user-registered --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-added      --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-removed    --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic chat.message-sent       --partitions 3 --replication-factor 1
+        echo "Danh sach topic:"
+        $$T --bootstrap-server $$B --list
+    restart: "no"
     networks:
       - chatapp-net
 

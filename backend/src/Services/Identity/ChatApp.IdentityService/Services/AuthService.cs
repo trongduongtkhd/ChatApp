@@ -1,3 +1,5 @@
+using ChatApp.Common.Outbox;
+using ChatApp.Contracts.Events;
 using ChatApp.IdentityService.Data;
 using ChatApp.IdentityService.Dtos;
 using ChatApp.IdentityService.Entities;
@@ -38,6 +40,13 @@ public class AuthService(IdentityDbContext db, JwtTokenService jwtTokenService)
         };
 
         db.Users.Add(user);
+
+        // Transactional Outbox: KHÔNG gửi Kafka ở đây. Chỉ thêm dòng outbox_messages,
+        // rồi SaveChangesAsync lưu INSERT users + INSERT outbox_messages trong CÙNG một transaction.
+        // OutboxPublisher (chạy nền) sẽ gửi lên Kafka sau; Kafka có chết thì sự kiện vẫn nằm chờ trong DB.
+        db.AddOutboxEvent(KafkaTopics.UserRegistered, user.Id.ToString(),
+            new UserRegistered(user.Id, user.UserName, user.DisplayName));
+
         try
         {
             await db.SaveChangesAsync(ct);
@@ -46,10 +55,9 @@ public class AuthService(IdentityDbContext db, JwtTokenService jwtTokenService)
         {
             // Hai request cùng tên đến cùng lúc: cả hai đều qua bước AnyAsync ở trên,
             // nhưng unique index chỉ cho một cái INSERT thành công.
+            // Transaction bị hủy → dòng outbox cũng không được lưu → không phát sự kiện cho user không tồn tại.
             return new RegisterResult(null, "UserName hoặc Email đã tồn tại");
         }
-
-        // TODO Phần 5: phát sự kiện identity.user-registered lên Kafka tại đây.
 
         return new RegisterResult(ToDto(user), null);
     }
