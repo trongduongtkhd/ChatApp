@@ -160,9 +160,10 @@ Tự viết bảng + BCrypt, không dùng ASP.NET Core Identity.
 Unique index (GroupId, SequenceNumber).
 
 Redis của chat-service:
-- `chat:seq:{groupId}` (string số): bộ đếm số thứ tự tin nhắn. Mất key → khởi tạo lại từ MAX(SequenceNumber) trong DB.
+- `chat:seq:{groupId}` (string số): bộ đếm số thứ tự tin nhắn. Mất key → khởi tạo lại từ MAX(SequenceNumber) trong DB. Key còn nhưng số cũ hơn DB (vd khôi phục từ bản sao lưu) → unique index báo trùng → nâng lên MAX (Lua, không hạ số) rồi thử lại. seq bảo đảm duy nhất và tăng dần, có thể có lỗ.
 - `presence:{userId}` (set): các ConnectionId SignalR đang mở. Rỗng = offline.
-- `group:members:{groupId}` (set): cache thành viên; xóa khi có member-added/removed.
+- `group:members:{groupId}` (set): cache thành viên, TTL 10 phút; xóa khi có member-added/removed.
+- Địa chỉ Redis: `ConnectionStrings:Redis` trong `appsettings.json` (Redis không đặt mật khẩu nên không phải secret).
 
 ### notification_db
 **unread_counters**: UserId, GroupId (PK kép), UnreadCount (int), LastReadSequence (bigint), UpdatedAt.
@@ -241,16 +242,18 @@ message GetMemberIdsReply { repeated string user_ids = 1; }
 ```
 
 ### chat-service
-- GET /api/chat/groups/{groupId}/messages?beforeSeq=&limit=50 – lịch sử, phân trang bằng sequenceNumber
+- GET /api/chat/groups/{groupId}/messages?beforeSeq=&limit=50 – lịch sử, phân trang bằng sequenceNumber (keyset: trả `limit` tin có seq < beforeSeq, xếp cũ → mới; trang sau dùng beforeSeq = seq nhỏ nhất vừa nhận; rỗng = hết). limit 1..100. Chỉ thành viên (403).
 
 SignalR Hub `/hubs/chat` (JWT truyền qua query `access_token`):
-| Hướng | Method | Tham số |
-|---|---|---|
-| Client → Server | JoinGroup | groupId |
-| Client → Server | LeaveGroup | groupId |
-| Client → Server | SendMessage | messageId, groupId, content |
-| Server → Client | ReceiveMessage | message (có sequenceNumber) |
-| Server → Client | UserPresenceChanged | userId, isOnline |
+| Hướng | Method | Tham số | Trả về |
+|---|---|---|---|
+| Client → Server | JoinGroup | groupId | danh sách userId thành viên đang online |
+| Client → Server | LeaveGroup | groupId | – |
+| Client → Server | SendMessage | messageId, groupId, content | message đã lưu (gửi trùng messageId → tin cũ) |
+| Server → Client | ReceiveMessage | message (có sequenceNumber) | |
+| Server → Client | UserPresenceChanged | userId, isOnline | |
+
+`UserPresenceChanged` gửi tới các phòng mà user đã JoinGroup: online khi vào phòng, offline khi kết nối cuối cùng của user đóng.
 
 ### notification-service
 - GET /api/notifications/unread

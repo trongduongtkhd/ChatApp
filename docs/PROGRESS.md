@@ -10,7 +10,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 4 | group-service | ✅ Xong |
 | 5 | Kafka events | ✅ Xong |
 | 6 | gRPC | ✅ Xong |
-| 7 | chat-service | ⬜ |
+| 7 | chat-service | ✅ Xong |
 | 8 | Scale + Backplane | ⬜ |
 | 9 | notification-service | ⬜ |
 | 10 | Angular | ⬜ |
@@ -168,9 +168,9 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - API nội bộ: không qua Gateway, không JWT, không publish port ra ngoài khi chạy Docker → **Chương 2, 5**.
 - **Cách demo:**
   1. Chạy identity, group, Gateway, chat (5003) → log group-service: `Now listening on: http://localhost:5012` và `:5002`.
-  2. `.\scripts\test-grpc.ps1` → Owner `True`, người ngoài `False`, vừa thêm → `True` ngay, xóa nhóm → `False` + `memberIds = 0`.
-  3. `docker pause postgres` → `curl.exe -s "http://localhost:5003/debug/membership?groupId=<guid>&userId=<guid>"` → `DeadlineExceeded` sau ~3000 ms → `docker unpause postgres`.
-  4. Tắt group-service → gọi lại → lỗi (xem lưu ý Windows bên dưới) → bật lại → tự gọi được, không cần khởi động lại chat-service.
+  2. `.\scripts\test-grpc.ps1` → Owner `True`, người ngoài `False`, vừa thêm → `True` ngay, xóa nhóm → `False` + `memberIds = 0`. *(Từ Phần 7: `/debug/membership` đã xóa; script gọi `dotnet run scripts/chat-test.cs -- grpc`, kiểm tra bằng `JoinGroup` qua hub: được vào / bị từ chối.)*
+  3. `docker pause postgres` → `curl.exe -s "http://localhost:5003/debug/membership?groupId=<guid>&userId=<guid>"` → `DeadlineExceeded` sau ~3000 ms → `docker unpause postgres`. *(Từ Phần 7: endpoint đã xóa nên không demo được cách này nữa; `docker pause postgres` làm treo cả identity. Kịch bản gRPC quá hạn demo bằng mục 4.)*
+  4. Tắt group-service → gọi lại → lỗi (xem lưu ý Windows bên dưới) → bật lại → tự gọi được, không cần khởi động lại chat-service. *(Từ Phần 7: `dotnet run scripts/chat-test.cs -- down`.)*
   5. (Tùy chọn) Postman → New → gRPC → `localhost:5012`, import file `.proto`, gọi trực tiếp; `group_id = "abc"` → `INVALID_ARGUMENT`.
 - **Kết quả đã kiểm tra:** script đúng cả 4 trường hợp; DB treo → `DeadlineExceeded` 3033 ms; client trỏ nhầm sang 5002 → `HTTP_1_1_REQUIRED` (port REST từ chối HTTP/2); HTTP/1.1 vào 5012 → 400; group-service tắt, deadline 3 s → `DeadlineExceeded` ~3015 ms; deadline 10 s → `Unavailable` sau 4152 ms; bật lại group-service → gọi được ngay; `test-optimistic-lock.ps1` vẫn 200 + 409.
 - **Lưu ý cho báo cáo:**
@@ -178,6 +178,61 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - gRPC không có xác thực (tin mạng nội bộ). Production nên dùng mTLS hoặc token giữa các service.
   - Proto sinh "Both" trong Contracts nên chat-service cũng có lớp Base (không dùng) – đổi lại chỉ một nơi sinh code, không service nào tham chiếu service khác.
   - Khi viết Dockerfile: `GrpcServices__GroupService=http://group-service:5012`; `Kestrel__Endpoints__Rest__Url=http://+:5002`, `Kestrel__Endpoints__Grpc__Url=http://+:5012` (localhost trong container không nhận kết nối từ container khác).
+
+### Phần 7 – chat-service: SignalR hub, lưu tin, Redis INCR, idempotency, lịch sử
+- **Đã làm (7 bước):** (1) `chat_db` (`messages` + `outbox_messages`), Redis, JWT; (2) hub `/hubs/chat` (`JoinGroup`, `LeaveGroup`, `SendMessage`) + Redis INCR, **xóa `/debug/membership`**; (3) idempotency 2 lớp + outbox `chat.message-sent`; (4) bộ đếm chịu lỗi (mất key / key cũ) + bắn 200 tin; (5) cache thành viên Redis + consumer `member-added/removed` xóa cache; (6) presence + `UserPresenceChanged`; (7) REST lịch sử phân trang keyset. Secret `ConnectionStrings:ChatDb` trong kho chung.
+- **File chính** (`ChatApp.ChatService/`):
+  - `Hubs/ChatHub.cs` (`Hub<IChatClient>`, `[Authorize]`, `HubException`, `Context.Items` giữ phòng đã vào), `Hubs/IChatClient.cs`.
+  - `Services/MessageService.cs`: kiểm tra `messageId` trước INCR (lớp 1), bắt 23505 `pk_messages` (lớp 2), `IdTaken` khi Id của người khác; `AddOutboxEvent` cùng transaction; 23505 `ix_messages_group_id_sequence_number` → `ResyncAsync` rồi thử lại (tối đa 3); `GetHistoryAsync` (keyset).
+  - `Services/SequenceGenerator.cs`: `EXISTS` → thiếu thì `ResyncAsync` (MAX trong DB + Lua "chỉ nâng, không hạ") → `INCR`.
+  - `Services/GroupMemberCache.cs`: cache-aside `SISMEMBER` → `EXISTS` → gRPC `GetMemberIds` → `SADD`+`EXPIRE` trong MULTI/EXEC.
+  - `Services/PresenceTracker.cs`: `SADD` khi kết nối; Lua `SREM`+`SCARD` khi ngắt; `GetOnlineAsync` pipelining.
+  - `Messaging/MemberAddedConsumer.cs`, `MemberRemovedConsumer.cs` (kế thừa `KafkaConsumerBase`, consumer group `chat-service`).
+  - `Controllers/MessagesController.cs`; `Entities/Message.cs`, `Data/ChatDbContext.cs` (unique `(group_id, sequence_number)`); `Contracts/Events/MessageSent.cs`.
+  - `scripts/chat-test.cs` – 9 chế độ: `basic`, `grpc`, `dup`, `load`, `seqlost`, `cache`, `presence`, `history`, `down`.
+- **Khái niệm → chương:**
+  - WebSocket (kết nối mở lâu, server chủ động đẩy) vs REST (hỏi–đáp); SignalR negotiate, hub, client gọi method như RPC → **Chương 4**.
+  - ConnectionId (định danh kết nối, đổi khi reconnect) vs UserId (từ JWT, không lấy từ tham số client); phòng = tập ConnectionId có tên → **Chương 5**.
+  - Bộ đếm tập trung Redis INCR (đơn luồng, lệnh nguyên tử) thay cho đồng hồ máy (lệch nhau) hay bộ đếm riêng từng bản (trùng) → **Chương 6**.
+  - Thứ tự CẤP SỐ ≠ thứ tự ĐẾN NƠI: 200 tin song song → 73 lần tin đến người nghe không theo seq → client phải sắp theo `sequenceNumber` → **Chương 6**.
+  - Idempotency: client sinh `messageId`, được gửi lại thoải mái; check-then-act có khe hở → PK chặn cuối; cái giá: seq có lỗ (duy nhất + tăng dần, không liên tục) → **Chương 6**.
+  - Không tin dữ liệu client: `messageId` của người khác → từ chối, không lộ nội dung → **Chương 5**.
+  - Transactional Outbox ở chat-service: Kafka chết vẫn chat, tin trùng thua ở PK → không có sự kiện thừa → **Chương 2, 6**.
+  - Nguồn sự thật (PostgreSQL) vs dữ liệu phái sinh (bộ đếm Redis, cache) – hỏng thì dựng lại từ nguồn → **Chương 6, 7**.
+  - Lỗi phát hiện trước (`EXISTS`) vs phát hiện sau (unique index) → tự sửa + thử lại có giới hạn → **Chương 8**.
+  - Lua script / MULTI-EXEC = thao tác nguyên tử tự định nghĩa → **Chương 6**.
+  - Cache-aside + xóa cache bằng sự kiện + TTL: đổi nhất quán mạnh (gRPC mỗi lần) lấy tốc độ và khả dụng (nhất quán cuối cùng ~0,5–1 s) → **Chương 2, 4**.
+  - Presence = "còn ≥ 1 kết nối", lưu chung ở Redis (Phần 8 nhiều bản); snapshot (`JoinGroup` trả về) + delta (`UserPresenceChanged`) → **Chương 4, 5**.
+  - Phân trang keyset (`seq < beforeSeq`, dùng index) vs OFFSET (lệch khi có tin mới, phải đếm N dòng) → **Chương 4**.
+  - Fail closed: không kiểm tra được quyền → từ chối; kết nối hub vẫn sống khi group-service chết (cô lập lỗi) → **Chương 8**.
+- **Cách demo:** chạy identity, group, Gateway, chat (tắt bằng **Ctrl+C**), rồi `dotnet run scripts/chat-test.cs -- <chế độ>`:
+  1. `basic` → 2 user chat, seq 1..4, người ngoài bị từ chối, không token 401.
+  2. `dup` → gửi trùng tuần tự + 5 kết nối đồng thời → 1 tin; psql: 3 tin, 3 dòng outbox.
+  3. `load` → 200 tin song song seq 1..200 (thêm `--count 1000 --connections 50`).
+  4. `seqlost` → xóa key / lùi key / xóa key giữa lúc gửi → vẫn đúng; log `Đồng bộ lại bộ đếm`.
+  5. `cache` → TTL 600, thêm/xóa thành viên → cache bị xóa sau ~0,5–1 s.
+  6. `presence` → 2 kết nối của 1 user, đóng lần lượt, chỉ báo offline ở kết nối cuối.
+  7. `history` → lật trang 71..120 → 21..70 → 1..20 → rỗng, có tin mới chen giữa vẫn đúng; `explain analyze` thấy `Index Scan Backward`.
+  8. `down` (kịch bản lỗi) → tắt group-service: nhóm có cache gửi được (~20 ms), nhóm chưa cache bị từ chối (~3 s); bật lại → gửi được.
+  9. Kafka chết: `docker compose stop kafka` → `basic` vẫn ĐÚNG; outbox `last_error = Local: Message timed out`; bật Kafka → gửi bù.
+- **Kết quả đã kiểm tra:**
+  - `basic`, `grpc`, `dup`, `load`, `seqlost`, `cache`, `presence`, `history` đều ĐÚNG; `test-optimistic-lock.ps1` vẫn 200 + 409.
+  - 20 kết nối gửi cùng messageId → 1 tin, seq tiếp theo nhảy 3 → 9 (lớp 2 chạm, INCR bỏ phí).
+  - `load` 200 tin: 778 ms trước khi có cache → 381 ms sau khi có cache (~524 tin/giây).
+  - `seqlost` (3): DEL rơi giữa EXISTS và INCR của 18 request → nhận seq 1..18 → unique index chặn → resync → 400/400 tin lưu được, 0 lời gọi thất bại.
+  - Kafka chết: gửi tin vẫn OK, 4 sự kiện kẹt outbox, bật Kafka → `chua_gui = 0`; 16 sự kiện / 5 nhóm nằm ở partition 1 và 2 (theo key).
+  - group-service chết: nhóm có cache 23 ms; nhóm chưa cache `DeadlineExceeded` 3075 ms; REST lịch sử nhóm chưa cache → 503 sau 3081 ms.
+  - Lịch sử: `Index Scan Backward using ix_messages_group_id_sequence_number`, 0,125 ms trên 1490 tin.
+- **Lưu ý cho báo cáo:**
+  - **Kết nối ma:** chat-service chết đột ngột → `OnDisconnectedAsync` không chạy → ConnectionId nằm lại trong `presence:{userId}` (đã tái hiện, còn cả sau khi khởi động lại) → user online mãi. Hướng xử lý (Phần 8/11): heartbeat + TTL theo từng bản.
+  - **Nhiều tab mở nhóm khác nhau:** đóng tab cuối chỉ báo offline cho các phòng tab đó đã vào (`Context.Items` là của từng kết nối). Sửa được bằng cách lưu phòng của user ở Redis (key mới, chưa làm).
+  - **Người bị xóa khỏi nhóm vẫn NHẬN tin** nếu đang ở trong phòng SignalR, tới khi rời phòng/kết nối lại (phòng chỉ kiểm tra quyền lúc `JoinGroup`); gửi thì bị chặn ngay khi cache bị xóa.
+  - **Sự kiện cũ xóa cache mới:** tạo nhóm → nạp cache ngay → `member-added` của Owner đến muộn ~1 s xóa mất. An toàn (chỉ thêm 1 lần gRPC) nhưng group-service chết đúng lúc đó thì nhóm "tưởng có cache" bị từ chối.
+  - **gRPC reconnect backoff:** sau vài lần lỗi, client chờ lâu dần mới thử lại; trong lúc chờ lời gọi bị từ chối ngay (`Unavailable` ~1 s thay vì 3 s); group-service sống lại có thể mất vài giây mới thông. Phần 11 (Polly).
+  - **Giết chat-service đột ngột → Kafka chờ session timeout:** bản mới khởi động sau 2,1 s nhưng 29,3 s mới được giao partition → trong lúc đó không xử lý `member-added` → người mới thêm bị từ chối. Ctrl+C (`Close()`) thì không gặp.
+  - Log `fail` có `23505` khi gửi đồng thời / bộ đếm hỏng là EF ghi lại INSERT bị chặn TRƯỚC khi code thử lại; không phải lỗi người dùng (không có `Failed to invoke hub method` tương ứng).
+  - Chạy 1 bản nên `Clients.Group(...)` chỉ phát trong bản đó → Phần 8 thêm Redis Backplane.
+  - Khi viết Dockerfile: `ConnectionStrings__Redis=redis:6379`, `ConnectionStrings__ChatDb=Host=postgres;...`, `Kafka__BootstrapServers=kafka:29092`, `GrpcServices__GroupService=http://group-service:5012`.
 
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)
@@ -188,3 +243,6 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 - **Phần 5:** dùng **Transactional Outbox** thay vì gửi Kafka trực tiếp sau `SaveChangesAsync`. Lý do: lưu DB và gửi Kafka là 2 hệ thống, không chung transaction (dual write). Kafka chết đúng lúc → DB đã có user nhưng event mất vĩnh viễn → `user_snapshots` thiếu user mãi mãi. Với outbox, event nằm trong DB cùng transaction, Kafka sống lại thì tự gửi bù. Đã cập nhật DESIGN.md: mục 1 (nguyên tắc), cây thư mục (`ChatApp.Common/Outbox/`), mục 3 (bảng `outbox_messages` ở identity_db, group_db, chat_db), mục 4 (cách phát), mục 6 (luồng gửi tin bước 5, 7), mục 7 (chương 6). Phần dùng chung viết trong `ChatApp.Common/Outbox` để chat-service dùng lại ở Phần 7.
 - **Phần 5:** tạo topic bằng container chạy một lần `kafka-init` trong docker-compose (đúng số partition DESIGN mục 4) thay vì để Kafka tự tạo (tự tạo chỉ có 1 partition). Xóa `scripts/seed-user-snapshots.ps1` vì đã có sự kiện `identity.user-registered`.
 - **Phần 5:** tắt tự tạo topic (`KAFKA_AUTO_CREATE_TOPICS_ENABLE=false`) – gõ sai tên topic thì báo lỗi ngay thay vì lặng lẽ tạo topic rác. Thêm `Kafka:ConsumerGroupId` vào cấu hình service có consumer (giá trị = tên service theo DESIGN mục 4). Đã ghi vào DESIGN.md mục 4.
+- **Phần 7:** `JoinGroup` trả về danh sách userId thành viên đang online (snapshot ban đầu; `UserPresenceChanged` chỉ báo thay đổi về sau, nên người vào phòng sau không biết ai đã online từ trước). `UserPresenceChanged` chỉ gửi tới các phòng user đã Join (người ngoài nhóm không biết ai online). Đã ghi DESIGN.md mục 5.
+- **Phần 7:** cache `group:members:{groupId}` thêm TTL 10 phút – lưới an toàn khi lỡ mất sự kiện Kafka hoặc ghi đè cache cũ. Bộ đếm `chat:seq` ngoài "mất key → MAX" còn xử lý "key cũ hơn DB" (unique index báo trùng → nâng lên MAX → thử lại). `ConnectionStrings:Redis` đặt trong `appsettings.json` (không mật khẩu). Đã ghi DESIGN.md mục 3.
+- **Phần 7:** client test SignalR viết bằng file C# chạy thẳng `scripts/chat-test.cs` (.NET 10 file-based app, `#:package`) thay vì PowerShell (PowerShell 5.1 không có client SignalR) – không tạo project mới. `scripts/test-grpc.ps1` gọi lại chế độ `grpc` của file này.
