@@ -59,5 +59,7 @@
 - Chạy hạ tầng: `docker compose up -d`
 - Xem container: `docker compose ps`
 - Xem log một service: `docker compose logs -f <tên-service>`
-- Chạy một service local: `dotnet run --project backend/src/Services/<Tên>/ChatApp.<Tên>Service`
+- Chạy một service local: `dotnet run --project backend/src/Services/<Tên>/ChatApp.<Tên>Service` (identity, group, notification; Gateway: `backend/src/Gateway/ChatApp.Gateway`). Chạy nhiều cái lần đầu: `dotnet build backend/ChatApp.sln` trước rồi `dotnet run --no-build ...` để tránh lỗi đụng file khi build song song.
+- chat-service chạy bằng Docker (2 bản + Nginx, từ Phần 8), KHÔNG `dotnet run`: sửa code xong `docker compose up -d --build chat-service-1 chat-service-2`. Gateway gọi chat qua Nginx `localhost:5080`.
+- Script test chat: `dotnet run scripts/chat-test.cs -- <chế độ>` (xem đầu file để biết các chế độ).
 - Chạy Angular: `cd frontend/chat-app; npm start`

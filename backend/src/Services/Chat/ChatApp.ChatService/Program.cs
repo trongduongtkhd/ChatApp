@@ -28,10 +28,11 @@ builder.Services.AddChatAppOutbox<ChatDbContext>(builder.Configuration);
 // Redis: MỘT kết nối dùng chung cho cả service (Singleton). ConnectionMultiplexer an toàn đa luồng,
 // tự ghép nhiều lệnh từ nhiều request lên cùng một kết nối TCP → không mở kết nối mới mỗi request.
 // AbortOnConnectFail = false: Redis chưa sẵn sàng thì service VẪN khởi động, thư viện tự kết nối lại ở nền.
+var redisConnection = builder.Configuration.GetConnectionString("Redis")
+    ?? throw new InvalidOperationException("Thiếu cấu hình ConnectionStrings:Redis");
 builder.Services.AddSingleton<IConnectionMultiplexer>(_ =>
 {
-    var options = ConfigurationOptions.Parse(builder.Configuration.GetConnectionString("Redis")
-        ?? throw new InvalidOperationException("Thiếu cấu hình ConnectionStrings:Redis"));
+    var options = ConfigurationOptions.Parse(redisConnection);
     options.AbortOnConnectFail = false;
     return ConnectionMultiplexer.Connect(options);
 });
@@ -47,8 +48,24 @@ builder.Services.AddScoped<GroupMembershipClient>();
 // REST lịch sử tin nhắn (Controllers/MessagesController).
 builder.Services.AddControllers();
 
-// SignalR (có sẵn trong ASP.NET Core, không cần package). Chạy 1 bản nên chưa cần Redis Backplane (Phần 8).
-builder.Services.AddSignalR();
+// SignalR (có sẵn trong ASP.NET Core). Phòng (group) và danh sách kết nối nằm trong RAM của TỪNG bản chat-service.
+// Redis Backplane (Phần 8): mỗi lần Clients.Group(...)/Clients.User(...) gửi, bản đang chạy code PUBLISH tin lên kênh Redis;
+// mọi bản đều SUBSCRIBE các kênh đó → bản nào đang giữ kết nối trong phòng thì đẩy xuống kết nối của mình.
+// → Người nối vào bản 1 nhận được tin gửi ở bản 2.
+// Công tắc SignalR:RedisBackplane chỉ để demo "tắt backplane" (docker: biến CHAT_BACKPLANE=false). Chạy thật luôn bật.
+var useBackplane = builder.Configuration.GetValue("SignalR:RedisBackplane", true);
+var signalR = builder.Services.AddSignalR();
+if (useBackplane)
+{
+    signalR.AddStackExchangeRedis(redisConnection, o =>
+    {
+        // Tiền tố tên kênh (thư viện nối thẳng vào trước tên kênh, nên tự thêm dấu ":"):
+        // Redis dùng chung cho nhiều thứ → kênh của hub chat là "chatapp-chat:ChatApp.ChatService.Hubs.ChatHub:...".
+        o.Configuration.ChannelPrefix = RedisChannel.Literal("chatapp-chat:");
+        // Giống kết nối Redis ở trên: Redis chưa sẵn sàng thì service vẫn khởi động, thư viện tự kết nối lại.
+        o.Configuration.AbortOnConnectFail = false;
+    });
+}
 
 // SequenceGenerator, MessageService dùng DbContext (Scoped: mỗi lần gọi hub một scope) → Scoped.
 builder.Services.AddScoped<SequenceGenerator>();
@@ -75,6 +92,9 @@ var redis = app.Services.GetRequiredService<IConnectionMultiplexer>();
 app.Logger.LogInformation("Redis {Endpoints}: {State}",
     string.Join(", ", redis.GetEndPoints().Select(e => e.ToString())),
     redis.IsConnected ? "đã kết nối" : "CHƯA kết nối, sẽ tự thử lại");
+app.Logger.LogInformation("SignalR Redis Backplane: {State}", useBackplane
+    ? "BẬT (kênh chatapp-chat:*)"
+    : "TẮT → tin chỉ tới các kết nối nằm trên bản này");
 
 app.UseAuthentication();
 app.UseAuthorization();

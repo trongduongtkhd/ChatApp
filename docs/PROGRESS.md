@@ -11,8 +11,8 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 5 | Kafka events | ✅ Xong |
 | 6 | gRPC | ✅ Xong |
 | 7 | chat-service | ✅ Xong |
-| 8 | Scale + Backplane | ⬜ |
-| 9 | notification-service | ⬜ |
+| 8 | Scale + Backplane | ✅ Xong |
+| 9 | notification-service | ✅ Xong |
 | 10 | Angular | ⬜ |
 | 11 | Chịu lỗi | ⬜ |
 | 12 | Sao lưu | ⬜ |
@@ -234,6 +234,110 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Chạy 1 bản nên `Clients.Group(...)` chỉ phát trong bản đó → Phần 8 thêm Redis Backplane.
   - Khi viết Dockerfile: `ConnectionStrings__Redis=redis:6379`, `ConnectionStrings__ChatDb=Host=postgres;...`, `Kafka__BootstrapServers=kafka:29092`, `GrpcServices__GroupService=http://group-service:5012`.
 
+### Phần 8 – 2 bản chat-service + Nginx + Redis Backplane
+- **Đã làm (5 bước):** (1) Dockerfile chat-service, chạy trong container thay cho `dotnet run`; (2) bản thứ 2 → tái hiện lỗi "không thấy tin nhau"; (3) Nginx load balancer (cổng 5080), Gateway trỏ cluster `chat` sang Nginx, client bỏ negotiate; (4) Redis Backplane có công tắc bật/tắt; (5) kịch bản tắt 1 bản / cả 2 bản. identity, group, Gateway vẫn chạy `dotnet run`.
+- **File chính:**
+  - `ChatService/Dockerfile`: multi-stage (sdk → aspnet), build context `backend/`, restore tách lớp để cache, `USER $APP_UID` (không chạy root), cài `libgssapi-krb5-2` (Npgsql cần, thiếu thì log báo lỗi). `backend/.dockerignore` bỏ `bin/`, `obj/`.
+  - `docker-compose.yml`: khối chung `x-chat-service: &chat-service` (YAML anchor) → `chat-service-1` (5003), `chat-service-2` (5013) cùng image `chatapp/chat-service`; biến môi trường `ConnectionStrings__ChatDb` (host `postgres`), `ConnectionStrings__Redis=redis:6379`, `Kafka__BootstrapServers=kafka:29092`, `GrpcServices__GroupService=http://host.docker.internal:5012`, `Jwt__Secret=${JWT_SECRET}`, `SignalR__RedisBackplane=${CHAT_BACKPLANE:-true}`; service `nginx` (5080).
+  - `infra/nginx/nginx.conf`: `upstream chat` round-robin, `zone` + `resolve` + `resolver 127.0.0.11`, `max_fails=1 fail_timeout=10s`, `proxy_next_upstream error timeout`, `proxy_connect_timeout 2s`, header `Upgrade`/`Connection`, `proxy_read_timeout 120s`, header `X-Chat-Upstream`, log dùng `$uri` (không ghi `access_token`).
+  - `ChatService/Program.cs`: `AddSignalR().AddStackExchangeRedis(...)` khi `SignalR:RedisBackplane = true`, `ChannelPrefix = "chatapp-chat:"`, log trạng thái lúc khởi động. Code hub KHÔNG đổi.
+  - `Gateway/appsettings.json`: cluster `chat` → `http://localhost:5080`.
+  - `scripts/chat-test.cs`: kết nối mặc định `SkipNegotiation` + chỉ WebSocket (cờ `--negotiate` bật lại); chế độ mới `backplane`, `lb`, `failover` (`--action stop|kill|none`).
+- **Khái niệm → chương:**
+  - Image vs container (2 tiến trình cùng image), multi-stage build, chạy bằng user thường → **Chương 3**.
+  - `localhost` trong container là chính container; gọi nhau bằng tên (Docker DNS), `host.docker.internal` = máy Windows; Nginx tự phân giải lại tên container (`resolve`), IP container đổi sau khi tạo lại → **Chương 5**.
+  - Scale ngang đòi hỏi service stateless: thứ đã để ở Redis (`chat:seq`, presence, cache) tự dùng chung, không sửa dòng nào; thứ nằm trong RAM (phòng SignalR, `Context.Items`, connectionToken của negotiate) thì hỏng → **Chương 2, 6**.
+  - Load balancer round-robin (20 request → 10/10; 10 kết nối → 5/5), WebSocket chia theo KẾT NỐI không theo tin → **Chương 8**.
+  - Proxy WebSocket: `Upgrade` → `101 Switching Protocols`; Nginx mặc định không chuyển header này → **Chương 4**.
+  - Negotiate + round-robin: negotiate ở bản 2, WebSocket ở bản 1 → 404 (10/10 lỗi). Sticky session bằng `ip_hash` không dùng được (mọi request đến từ IP của Gateway) → bỏ negotiate → **Chương 4, 5**.
+  - Redis Pub/Sub làm backplane: mỗi bản `SUBSCRIBE` kênh `...:group:{groupId}` khi có kết nối đầu tiên vào phòng; `Clients.Group` → 1 lệnh `PUBLISH`; Pub/Sub không lưu tin (khác Kafka) → **Chương 4**.
+  - Kênh `...:internal:ack:<container>`: bản này nhờ bản kia thêm kết nối vào phòng rồi chờ xác nhận → định danh từng bản, **Chương 5**.
+  - Consumer group: 2 bản × 2 consumer = 4 member, mỗi topic 1 partition → chỉ 1 bản nhận, bản kia dự phòng; bản sống lại → chia lại (mỗi bản giữ 1 topic) → **Chương 4, 8**.
+  - 2 OutboxPublisher cùng đọc `chat_db`: 2 sự kiện của 1 nhóm do 2 bản gửi, `attempts = 1` (không trùng) nhờ `SKIP LOCKED` → **Chương 6**.
+  - Tự kết nối lại (`WithAutomaticReconnect`) + JoinGroup lại (ConnectionId mới) + gửi lại cùng `messageId` + lấy bù bằng REST lịch sử → **Chương 8**.
+  - Health check bị động của Nginx + fail fast: lần đầu chờ timeout (504), đánh dấu hỏng rồi từ chối ngay (502) → **Chương 8**.
+- **Cách demo** (chạy `docker compose up -d --build`, rồi identity, group, Gateway bằng `dotnet run`; chờ log chat-service có `Application started`):
+  1. `dotnet run scripts/chat-test.cs -- backplane` → 7 OK.
+  2. Tắt backplane: `$env:CHAT_BACKPLANE="false"; docker compose up -d chat-service-1 chat-service-2` → `backplane`: 4 OK (Redis dùng chung) + 3 SAI (tin, presence giữa 2 bản). Bật lại: `Remove-Item Env:CHAT_BACKPLANE; docker compose up -d chat-service-1 chat-service-2`.
+  3. `lb` → REST 10/10, hub 5/5, có negotiate 0/10 thành công; `docker compose logs nginx --tail 30` thấy cặp `negotiate 200 → .7` / `GET /hubs/chat 404 → .5`.
+  4. Xem backplane: `docker exec -it redis redis-cli MONITOR` rồi chạy `basic` → `SUBSCRIBE`/`PUBLISH ...:group:<id>`; hoặc `docker exec redis redis-cli PUBSUB CHANNELS "chatapp-chat*"`.
+  5. `failover` (mặc định stop) và `failover --action kill`.
+  6. Tắt cả 2: `docker compose stop chat-service-1 chat-service-2` → gọi REST chat qua Gateway: lần đầu 504, sau đó 502.
+- **Kết quả đã kiểm tra:**
+  - Container: `whoami` = `app`, image 513 MB; container gọi được gRPC sang group-service trên Windows qua `host.docker.internal:5012` (group-service nghe `localhost`, Docker Desktop vẫn chuyển được).
+  - Không backplane: lan (bản 2) không nhận tin duong (bản 1) và ngược lại, nhưng cả 2 tin có trong DB, seq 1, 2 liên tiếp; qua Nginx `basic` chỉ nhận 1/4 và 3/4 tin, `dup`, `presence` SAI; `history`, `cache`, `grpc` vẫn ĐÚNG.
+  - Có backplane: mọi chế độ qua Nginx ĐÚNG (`basic`, `dup`, `load`, `presence`, `history`, `cache`, `grpc`, `seqlost`, `lb`, `backplane`).
+  - `failover --action stop`: duong mất kết nối ở giây 10,1 → nối lại sang bản kia ở 10,2 (≈ 0,1 s); 40/40 tin, 0 lần gửi lỗi, không trùng; lan thấy duong `offline → online`; consumer: bản tắt → bản còn lại nhận CẢ 2 partition ngay, bản bật lại → chia lại 1–1.
+  - `failover --action kill`: vẫn nối lại ≈ 0,1 s, 40/40 tin; nhưng lan KHÔNG nhận offline, `presence:{duong}` còn 2 ConnectionId (1 là kết nối ma). Bản bị kill đang giữ partition `member-added` → bản còn sống KHÔNG được giao; 35 giây sau (khi bản bị kill khởi động lại và vào group) mới chia lại.
+  - Tắt cả 2 bản: request đầu 504 sau 4,0 s (thử 2 bản × `proxy_connect_timeout 2s`), request ngay sau 502 sau 2 ms (`no live upstreams`).
+- **Lưu ý cho báo cáo:**
+  - Hai bản đều chết → Gateway trả **504 rồi 502** (không phải luôn 502): ví dụ phát hiện lỗi bằng timeout (chậm) rồi nhớ trạng thái hỏng để từ chối nhanh (`fail_timeout` 10 s) – ý tưởng giống circuit breaker ở Phần 11.
+  - **Kill vs stop:** stop (SIGTERM) → ASP.NET đóng kết nối đúng cách → `OnDisconnectedAsync` chạy, consumer `Close()` → mọi thứ sạch. Kill (SIGKILL) → kết nối ma trong presence, offline không được báo, Kafka chờ session timeout mới chia lại partition (trong lúc đó `member-added` không ai xử lý → người mới thêm bị từ chối tới khi cache hết hạn/được xóa). Xử lý: Phần 11 (heartbeat + TTL cho presence).
+  - Trong 2 lần chạy `failover`, lan tình cờ nằm ở bản KHÔNG bị tắt nên "lỡ 0 tin". Nếu cả 2 cùng ở bản bị tắt thì tin gửi lúc lan đang nối lại chỉ lấy được qua REST lịch sử – script có sẵn bước lấy bù đó.
+  - Bỏ negotiate → chỉ dùng WebSocket, không còn đường lùi long polling khi mạng chặn WebSocket (chấp nhận được với trình duyệt hiện nay). Client không biết `ConnectionId` (do negotiate trả), server vẫn có.
+  - Backplane: mỗi tin thêm 1 vòng Redis; Redis chết → không đẩy tin giữa các bản (tin vẫn lưu DB/Kafka); rất nhiều bản → Redis thành nút thắt.
+  - `.env` cần `JWT_SECRET` = `Jwt:Secret` trong user-secrets (đã thêm khi làm Bước 1), nếu không container trả 401 với token do identity local cấp.
+  - Sửa code chat-service → `docker compose up -d --build chat-service-1 chat-service-2`. Các chỉ dẫn "chạy chat-service bằng `dotnet run`" ở Phần 6, 7 không còn dùng (cổng 5003 thuộc container).
+  - Chạy 3 `dotnet run` cùng lúc lần đầu dễ lỗi build `ChatApp.Contracts.dll ... being used by another process` → `dotnet build backend/ChatApp.sln` trước rồi `dotnet run --no-build`.
+  - Cảnh báo DataProtection trong log container là vô hại (chat-service không dùng cookie).
+
+### Phần 9 – notification-service: đếm tin chưa đọc, idempotent consumer, hub
+- **Đã làm (7 bước):** (1) `notification_db` 3 bảng; (2a) consumer `member-added/removed` kiểu đơn giản → tái hiện lỗi đảo thứ tự; (2b) sửa bằng tombstone + `occurredAt`; (3) consumer `chat.message-sent` + Idempotent Consumer; (4) REST `GET /unread`, `POST /groups/{id}/read`; (5) hub `/hubs/notifications` + `UnreadCountChanged`; (6) demo sự kiện trùng (công tắc) + replay. Chạy `dotnet run` port 5004, 1 bản. Secret `ConnectionStrings:NotificationDb` trong kho chung.
+- **File chính** (`ChatApp.NotificationService/`):
+  - `Entities/` `UnreadCounter`, `GroupMemberSnapshot` (`IsMember`, `LastEventAt`, `LastEventId`), `ProcessedEvent`; `Data/NotificationDbContext.cs`; migration `Initial`, `MemberSnapshotTombstone` (sửa tay mặc định `is_member = true` cho dòng cũ).
+  - `Services/MemberSnapshotService.cs`: một câu `INSERT ... ON CONFLICT DO UPDATE ... WHERE (last_event_at, last_event_id) < (excluded...)`; áp được → tạo/xóa dòng `unread_counters` cùng transaction.
+  - `Services/UnreadCounterService.cs`: `ApplyMessageSentAsync` (1 transaction: `processed_events` → `UPDATE ... FROM group_member_snapshots ... RETURNING` +1 người nhận → người gửi "đọc tới seq"); `MarkReadAsync` (một câu UPDATE, `GREATEST`, về 0 khi VƯỢT mốc); công tắc `Notification:IdempotentConsumer`.
+  - `Services/UnreadNotifier.cs`: `IHubContext` → `Clients.User(userId).UnreadCountChanged` sau commit, lỗi chỉ ghi log.
+  - `Messaging/MemberAddedConsumer.cs`, `MemberRemovedConsumer.cs`, `MessageSentConsumer.cs` (kế thừa `KafkaConsumerBase`).
+  - `Controllers/NotificationsController.cs`, `Dtos/`; `Hubs/NotificationHub.cs`, `INotificationClient.cs`, `SubUserIdProvider.cs`.
+  - `Contracts/Events/IntegrationEvent.cs`: chú thích `OccurredAt` (so được giữa sự kiện của CÙNG bên phát).
+  - `scripts/chat-test.cs`: lớp `Kafka` (tự đẩy sự kiện giả theo JSON của Contracts), `NotificationClient`; chế độ `reorder`, `snapshot`, `unread`, `dupevent`.
+- **Khái niệm → chương:**
+  - At-least-once: consumer commit sau xử lý, outbox gửi lại khi chưa ghi `processed_at` → sự kiện trùng là chuyện bình thường → **Chương 4, 6**.
+  - Idempotent Consumer: `INSERT processed_events ON CONFLICT DO NOTHING` vừa kiểm tra vừa ghi sổ, CÙNG transaction với `+1` (tách 2 transaction → mất đếm hoặc đếm 2 lần) → **Chương 6**.
+  - So sánh: upsert snapshot / xóa cache / bản sao thành viên tự idempotent → không cần sổ; `+1` thì BẮT BUỘC cần → **Chương 6**.
+  - Kafka chỉ giữ thứ tự trong 1 partition của 1 topic; added/removed/message-sent là 3 topic, 3 consumer song song → đến sai thứ tự → **Chương 6**.
+  - Idempotent ≠ không phụ thuộc thứ tự: bản 2a idempotent nhưng vẫn sai khi đảo thứ tự → **Chương 6**.
+  - Tombstone + last-writer-wins theo `(occurredAt, eventId)`: xóa = đánh dấu, nhớ sự kiện cuối, bỏ sự kiện cũ đến muộn; bằng thời điểm thì phân xử bằng eventId → **Chương 6**.
+  - Đồng hồ vật lý chỉ so được trong CÙNG một bên phát; nhiều bản lệch đồng hồ → cần đồng hồ logic (số phiên bản do group-service cấp, Lamport) → **Chương 6**.
+  - Kafka replay dựng lại dữ liệu phái sinh (xóa bảng + reset offset) – chỉ đúng khi code đúng với mọi thứ tự và mọi lần lặp → **Chương 7**.
+  - Mốc đã đọc `LastReadSequence` dùng seq logic (Phần 7), chỉ tăng (`GREATEST`); về 0 khi request VƯỢT mốc → chống request cũ đến muộn, request lặp → **Chương 6**.
+  - Một câu SQL thay cho đọc-rồi-ghi (consumer +1 và user mark read cùng dòng → khóa dòng, không mất cập nhật) → **Chương 6**.
+  - `Clients.User` (mọi kết nối của 1 user) vs `Clients.Group` (phòng); `IUserIdProvider` nối UserId = claim `sub` = UserIdentifier → **Chương 4, 5**.
+  - Ghi DB trước, đẩy SignalR sau (best-effort); DB là nguồn sự thật, client lấy lại bằng REST → **Chương 4, 8**.
+  - Quyền mark read theo bản sao (không gọi group-service) → group-service chết vẫn chạy (cô lập lỗi), đổi lại người vừa được thêm có thể 403 ~1 s. Ngược với chat-service (fail closed qua gRPC) → **Chương 2, 8**.
+  - Tách rời theo thời gian: notification chết → chat vẫn chạy, Kafka giữ sự kiện, sống lại đọc tiếp từ offset → **Chương 2, 4**.
+- **Cách demo** (chạy identity, group, Gateway, notification bằng `dotnet run`; `docker compose up -d`):
+  1. `dotnet run scripts/chat-test.cs -- reorder` → 12 OK (đảo thứ tự, gửi lại, thêm lại, cùng occurredAt).
+  2. `snapshot` → bản sao khớp group_db (thừa 0, thiếu 0 trừ dữ liệu trước Phần 5).
+  3. `unread` → 2 tab cùng nhận 1, 2, 3; đọc ở tab 1 → tab 2 nhận 0; gửi thêm → 1; không token 401.
+  4. `dupevent` → 1 (BẬT). Tắt: dừng notification, `$env:Notification__IdempotentConsumer="false"`, chạy notification trong CÙNG cửa sổ PowerShell, `dupevent` → 3 (SAI có chủ đích, log khởi động "Idempotent Consumer: TẮT"). Bật lại: `Remove-Item Env:Notification__IdempotentConsumer` rồi chạy lại.
+  5. Replay: Ctrl+C notification → `docker exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group notification-service --reset-offsets --to-earliest --topic chat.message-sent --execute` → bật lại → bộ đếm không đổi, log toàn "Bỏ qua sự kiện trùng". (Replay bản sao thành viên: thêm `truncate group_member_snapshots, unread_counters, processed_events` và reset cả 2 topic `group.member-*` rồi chạy `snapshot`.)
+  6. Lỗi: tắt notification → `basic` vẫn ĐÚNG, LAG > 0 → bật lại → bộ đếm đúng. Tắt group-service → REST notification vẫn 200.
+- **Kết quả đã kiểm tra:**
+  - **Bản 2a tái hiện lỗi thật khi replay lần đầu:** 29/30 sự kiện removed chạy trước added tương ứng ("không có gì để xóa") → bản sao 137–139 dòng trong khi group_db 109–110 → 28–30 thành viên ma. `reorder` (2) → SAI.
+  - **Bản 2b:** `reorder` 12/12 OK. Replay sạch (truncate + reset offset): 186 sự kiện, 38 bị bỏ vì cũ, bản sao 110 = group_db 111 trừ 1 thành viên của nhóm tạo lúc 07:30 03/10 (Phần 4) trong khi outbox đầu tiên 17:52 → không có sự kiện để replay; 0 thành viên ma; 34 tombstone.
+  - **Trùng có sẵn trong Kafka:** lần đầu đọc `chat.message-sent`: 4.235 sự kiện, `processed_events` 4.183 = số dòng outbox chat_db, 52 lần "Bỏ qua sự kiện trùng" (2 nhóm test ngày 04/10, outbox ghi `processed_at` trễ 6 phút sau `occurred_at` → đã gửi lại). Tốc độ replay ~70 sự kiện/giây.
+  - `basic` → duong `1/3`, lan `0/4` (unread/mốc).
+  - REST 13 trường hợp: read bằng mốc → giữ 1; cũ hơn → giữ; vượt → 0; tab cũ đến muộn → mốc không lùi; 400 (thiếu / âm); 403 (ngoài nhóm, nhóm không tồn tại); 404 (`abc`); 401.
+  - `unread`: độ trễ gửi tin → nhận UnreadCountChanged 274–403 ms.
+  - `dupevent`: BẬT → unread 1, `processed_events` 1 dòng, 2 log bỏ qua; TẮT → unread 3, nhận `1, 2, 3`, 0 dòng sổ.
+  - Replay `chat.message-sent` sau khi đã chạy công tắc TẮT: 4.257 sự kiện, 4.256 bỏ qua, 1 xử lý thật → 122 bộ đếm chỉ đổi 1 dòng (`3 → 4`) đúng nhóm demo lúc TẮT (sự kiện xử lý khi tắt không được ghi sổ).
+  - Tắt group-service: `/api/groups` 502, notification GET 200 (19 ms), POST read 200.
+  - Kill notification rồi bật lại: 39–44 s mới được giao partition (session timeout); chat vẫn chạy trong lúc đó; bắt kịp đúng.
+- **Lưu ý cho báo cáo:**
+  - **Tin đến trước member-added:** thành viên vừa được thêm có thể không được đếm những tin đầu (khác topic). Lúc bắt kịp sau sự cố, 2 consumer chạy song song – lần kiểm tra member-added được áp trước nên đúng, nhưng KHÔNG được bảo đảm.
+  - **Tắt idempotency để lại hậu quả lâu dài:** sự kiện xử lý lúc tắt không có trong sổ → replay về sau đếm lại chúng (đã đo được: +1).
+  - Server không biết seq lớn nhất thật (không lưu tin) → tin `lastReadSequence` của client; gửi `999999` vẫn 200 → nhóm đó không đếm tin < 999999 cho chính user đó (thiệt hại tự chịu).
+  - Mark read về 0 khi vượt mốc: client gửi mốc thấp hơn tin mới nhất đã đếm thì các tin sau mốc bị coi là đã đọc (muốn chính xác phải lưu từng seq). Angular gửi seq lớn nhất đang hiển thị.
+  - Dựa vào đồng hồ group-service (1 bản). Nhiều bản lệch đồng hồ → có thể áp sai; hướng sửa: version tăng dần cho từng (nhóm, user).
+  - `processed_events` (4.201 dòng) và tombstone lớn dần → job dọn (Hangfire, Phần 12). Xóa sổ quá sớm thì sự kiện trùng đến muộn bị đếm lại → giữ lâu hơn thời gian lưu của Kafka.
+  - Chạy 1 bản: `Clients.User` chỉ tới kết nối trên bản này; 2 bản cần Redis Backplane như Phần 8. Bản thân bộ đếm chịu được 2 bản (PK `processed_events`, câu UPDATE nguyên tử, 3 partition chia được).
+  - SignalR không gửi bù thông báo lỡ → Angular (Phần 10) gọi `GET /unread` sau khi kết nối/kết nối lại.
+  - Reset offset cần consumer group KHÔNG hoạt động: dừng bằng kill → Kafka giữ member cũ ~45 s (`group is Stable`), Ctrl+C thì reset được ngay.
+  - Hub `/hubs/notifications` cũng dùng `skipNegotiation` + WebSocket như chat (Angular dùng chung cách kết nối).
+  - Khi viết Dockerfile: `ConnectionStrings__NotificationDb` (host `postgres`), `Kafka__BootstrapServers=kafka:29092`, `Jwt__Secret`.
+
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)
 
@@ -246,3 +350,9 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 - **Phần 7:** `JoinGroup` trả về danh sách userId thành viên đang online (snapshot ban đầu; `UserPresenceChanged` chỉ báo thay đổi về sau, nên người vào phòng sau không biết ai đã online từ trước). `UserPresenceChanged` chỉ gửi tới các phòng user đã Join (người ngoài nhóm không biết ai online). Đã ghi DESIGN.md mục 5.
 - **Phần 7:** cache `group:members:{groupId}` thêm TTL 10 phút – lưới an toàn khi lỡ mất sự kiện Kafka hoặc ghi đè cache cũ. Bộ đếm `chat:seq` ngoài "mất key → MAX" còn xử lý "key cũ hơn DB" (unique index báo trùng → nâng lên MAX → thử lại). `ConnectionStrings:Redis` đặt trong `appsettings.json` (không mật khẩu). Đã ghi DESIGN.md mục 3.
 - **Phần 7:** client test SignalR viết bằng file C# chạy thẳng `scripts/chat-test.cs` (.NET 10 file-based app, `#:package`) thay vì PowerShell (PowerShell 5.1 không có client SignalR) – không tạo project mới. `scripts/test-grpc.ps1` gọi lại chế độ `grpc` của file này.
+- **Phần 8:** sơ đồ đổi thành Angular → Gateway → **Nginx → 2 bản chat-service** (trước ghi Nginx đứng trước Gateway). Nginx chỉ cân bằng tải cho chat-service; Gateway vẫn là cửa vào duy nhất. Cổng Nginx 5080; chat-service chạy Docker, lộ 5003/5013 để demo nối thẳng từng bản. Đã ghi DESIGN.md mục 1, 2.
+- **Phần 8:** client SignalR dùng `skipNegotiation: true` + chỉ WebSocket (áp dụng cả Angular Phần 10) thay vì sticky session – `ip_hash` vô dụng vì mọi request đến từ IP của Gateway. Sau reconnect tải lại lịch sử. Đã ghi DESIGN.md quy tắc frontend.
+- **Phần 8:** thêm cấu hình `SignalR:RedisBackplane` (mặc định bật, Docker `CHAT_BACKPLANE`) chỉ để demo tắt backplane; kênh `chatapp-chat:*`. Thêm `backend/.dockerignore`. Đã ghi DESIGN.md mục 2b, 3.
+- **Phần 9:** `group_member_snapshots` thêm `IsMember`, `LastEventAt`, `LastEventId` – **tombstone + chỉ áp sự kiện mới hơn** theo `(occurredAt, eventId)`. Lý do: member-added và member-removed là 2 topic, đến sai thứ tự thì cách INSERT/DELETE để lại thành viên ma (đo được 28–30 dòng khi replay). Đã cân nhắc gọi gRPC `GetMemberIds` để đồng bộ lại (luôn khớp nguồn, tự sửa khi mất sự kiện) nhưng chọn tombstone vì không thêm phụ thuộc lúc chạy notification → group-service. Đã ghi DESIGN.md mục 3.
+- **Phần 9:** thêm công tắc `Notification:IdempotentConsumer` (mặc định `true`) chỉ để demo đếm trùng. Đã ghi DESIGN.md mục 3.
+- **Phần 9:** quy tắc đánh dấu đã đọc: `LastReadSequence = GREATEST(cũ, mới)`, `UnreadCount = 0` chỉ khi mốc mới VƯỢT mốc cũ; người gửi tin coi như đọc tới tin của mình (cùng quy tắc).

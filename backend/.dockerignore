@@ -1,0 +1,7 @@
+# Build context của Dockerfile các service là thư mục backend/.
+# Bỏ kết quả build trên Windows: obj/project.assets.json chứa đường dẫn Windows (D:\...)
+# → nếu chép vào image, dotnet trong Linux đọc nhầm và build lỗi. Image tự restore/build lại từ đầu.
+**/bin/
+**/obj/
+**/*.user
+**/.vs/

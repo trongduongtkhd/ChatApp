@@ -9,11 +9,11 @@
 - Phát sự kiện bằng **Transactional Outbox**: service KHÔNG gửi Kafka ngay trong request. Event được ghi vào bảng `outbox_messages` cùng transaction với dữ liệu nghiệp vụ, rồi một BackgroundService (`OutboxPublisher`) đọc bảng và đẩy lên Kafka. Nhờ vậy Kafka có tạm chết thì event cũng không bị mất (tránh lỗi dual write).
 
 ```
-Angular ──REST/SignalR──► Nginx ──► API Gateway (YARP)
-                                     ├─► identity-service
-                                     ├─► group-service
-                                     ├─► chat-service (x2 bản)
-                                     └─► notification-service
+Angular ──REST/SignalR──► API Gateway (YARP)
+                           ├─► identity-service
+                           ├─► group-service
+                           ├─► Nginx (load balancer) ──► chat-service-1 / chat-service-2
+                           └─► notification-service
 chat-service ──gRPC──► group-service
 identity/group/chat ──Kafka──► group/chat/notification
 SignalR Redis Backplane đồng bộ giữa các bản chat-service
@@ -26,8 +26,11 @@ SignalR Redis Backplane đồng bộ giữa các bản chat-service
 | API Gateway | ChatApp.Gateway | api-gateway | – | 5000 |
 | Identity | ChatApp.IdentityService | identity-service | identity_db | 5001 |
 | Group | ChatApp.GroupService | group-service | group_db | 5002 (REST), 5012 (gRPC, HTTP/2) |
-| Chat | ChatApp.ChatService | chat-service | chat_db | 5003 |
+| Chat | ChatApp.ChatService | chat-service-1, chat-service-2 | chat_db | 5003, 5013 (Docker, cổng 8080 trong container) |
 | Notification | ChatApp.NotificationService | notification-service | notification_db | 5004 |
+| Nginx (load balancer chat) | – | nginx | – | 5080 |
+
+Từ Phần 8 chat-service chạy bằng Docker (2 bản, cùng image `chatapp/chat-service`), Gateway gọi chat qua Nginx `localhost:5080`. Cổng 5003/5013 chỉ để demo nối thẳng vào từng bản.
 
 ## 2b. Cấu trúc thư mục
 
@@ -46,6 +49,7 @@ ChatApp/
 ├── backend/
 │   ├── ChatApp.sln
 │   ├── Directory.Build.props     # UserSecretsId chung "chatapp-dev" cho mọi project (JWT secret không lệch)
+│   ├── .dockerignore             # build context của Dockerfile là backend/: bỏ bin/, obj/ của Windows
 │   └── src/
 │       ├── BuildingBlocks/
 │       │   ├── ChatApp.Contracts/      # hợp đồng dùng chung
@@ -141,6 +145,8 @@ Routes:
 Quy tắc frontend:
 - Hub service nằm trong `core/` (`providedIn: 'root'`) để cả app chỉ có MỘT kết nối mỗi hub. Không provide lại trong module lazy.
 - Kết nối hub khi đăng nhập, `stop()` khi đăng xuất; truyền JWT bằng `accessTokenFactory`; bật `withAutomaticReconnect()`.
+- Kết nối hub dùng `skipNegotiation: true` + `transport: HttpTransportType.WebSockets` (Phần 8): chat-service có 2 bản sau Nginx round-robin, nếu để negotiate thì request negotiate và request WebSocket có thể rơi vào 2 bản khác nhau → 404. Bỏ negotiate → chỉ một request, không cần sticky session.
+- Sau khi reconnect, tải lại lịch sử (REST) để lấy bù tin bị lỡ lúc mất kết nối (SignalR không gửi bù).
 - Sau khi reconnect, ConnectionId mới nên phải gọi lại `JoinGroup` cho nhóm đang mở (`onreconnected`).
 - Component không gọi HttpClient trực tiếp, chỉ gọi qua service trong `core/services`.
 
@@ -164,11 +170,16 @@ Redis của chat-service:
 - `presence:{userId}` (set): các ConnectionId SignalR đang mở. Rỗng = offline.
 - `group:members:{groupId}` (set): cache thành viên, TTL 10 phút; xóa khi có member-added/removed.
 - Địa chỉ Redis: `ConnectionStrings:Redis` trong `appsettings.json` (Redis không đặt mật khẩu nên không phải secret).
+- Kênh Pub/Sub `chatapp-chat:*` (Phần 8): SignalR Redis Backplane, để `Clients.Group(...)` ở một bản tới được kết nối ở mọi bản. Bật/tắt bằng `SignalR:RedisBackplane` (mặc định `true`; Docker: biến `CHAT_BACKPLANE`, chỉ tắt khi demo).
 
 ### notification_db
 **unread_counters**: UserId, GroupId (PK kép), UnreadCount (int), LastReadSequence (bigint), UpdatedAt.
-**group_member_snapshots**: GroupId, UserId (PK kép). Bản sao từ sự kiện group.member-*.
+**group_member_snapshots**: GroupId, UserId (PK kép), IsMember (bool), LastEventAt (timestamptz), LastEventId (uuid). Bản sao từ sự kiện group.member-*.
+- member-added và member-removed là 2 topic → có thể đến sai thứ tự. Quy tắc áp: **tombstone + chỉ áp sự kiện mới hơn**. Xóa = `IsMember = false` (không xóa dòng); sự kiện chỉ ghi đè khi `(occurredAt, eventId)` lớn hơn `(LastEventAt, LastEventId)` đang lưu (một câu `INSERT ... ON CONFLICT DO UPDATE ... WHERE`). So `occurredAt` được vì mọi sự kiện thành viên đều do group-service tạo.
+- Chỉ dòng `IsMember = true` mới là thành viên (đếm unread, kiểm tra quyền mark read).
+
 **processed_events**: EventId (PK), ProcessedAt. Idempotent Consumer (Kafka at-least-once).
+Công tắc `Notification:IdempotentConsumer` (mặc định `true`) chỉ để demo: tắt thì không ghi/kiểm tra `processed_events` → sự kiện trùng bị đếm 2 lần.
 
 ### outbox_messages (có trong identity_db, group_db, chat_db: mỗi service phát sự kiện giữ outbox riêng trong DB của mình)
 **outbox_messages**: Id (uuid PK, = `eventId` của sự kiện), Topic (varchar 200), Key (varchar 200), EventType (varchar 100), Payload (jsonb), OccurredAt (timestamptz), ProcessedAt (timestamptz, null = chưa gửi), Attempts (int), LastError (text, null).

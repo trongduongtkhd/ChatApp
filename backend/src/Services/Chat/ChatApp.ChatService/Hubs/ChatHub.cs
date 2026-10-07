@@ -27,8 +27,8 @@ public class ChatHub(
     private const string JoinedRoomsKey = "joined-rooms";
 
     // "Phòng" SignalR của một nhóm chat. Tên phòng = groupId.
-    // Phòng chỉ là danh sách ConnectionId do SignalR giữ trong bộ nhớ của bản chat-service này
-    // (Phần 8: Redis Backplane để phòng có hiệu lực trên mọi bản).
+    // Phòng chỉ là danh sách ConnectionId do SignalR giữ trong bộ nhớ của bản chat-service này.
+    // Redis Backplane (Program.cs) làm cho lệnh gửi tới phòng có hiệu lực trên MỌI bản: mỗi bản đẩy cho kết nối của mình.
     public static string RoomName(Guid groupId) => groupId.ToString();
 
     // Context.Items: "túi đồ" riêng của MỘT kết nối, sống từ lúc kết nối tới lúc ngắt, nằm trong RAM của bản đang giữ
@@ -118,7 +118,7 @@ public class ChatHub(
         switch (result.Status)
         {
             case SendStatus.Created:
-                // Đẩy tới mọi kết nối trong phòng của nhóm (trên bản chat-service này).
+                // Đẩy tới mọi kết nối trong phòng của nhóm, trên mọi bản chat-service (qua Redis Backplane).
                 await Clients.Group(RoomName(groupId)).ReceiveMessage(result.Message!);
                 break;
             case SendStatus.Duplicate:

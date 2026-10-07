@@ -3,6 +3,40 @@
 
 name: chatapp
 
+# Khai báo chung cho MỌI bản chat-service (Phần 8). "x-..." là phần mở rộng, Compose không coi là service.
+# &chat-service đặt tên (anchor) cho khối này; các service bên dưới chép lại bằng "<<: *chat-service"
+# rồi chỉ ghi phần riêng (tên container, cổng). Thêm bản thứ 3 = thêm 4 dòng.
+x-chat-service: &chat-service
+  build:
+    context: ./backend
+    dockerfile: src/Services/Chat/ChatApp.ChatService/Dockerfile
+  # 2 bản dùng CHUNG một image: cùng code, khác tiến trình (giống chạy 2 lần một file exe).
+  image: chatapp/chat-service
+  environment:
+    # Biến môi trường ghi đè appsettings.json; "__" thay cho ":" (Kafka__BootstrapServers = Kafka:BootstrapServers).
+    # Trong mạng Docker gọi nhau bằng TÊN container (Docker DNS), không dùng localhost:
+    # localhost trong container là chính container đó.
+    ConnectionStrings__ChatDb: Host=postgres;Port=5432;Database=chat_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+    ConnectionStrings__Redis: redis:6379
+    Kafka__BootstrapServers: kafka:29092
+    # group-service vẫn chạy trên Windows → host.docker.internal = "máy Windows" nhìn từ trong container (Docker Desktop).
+    GrpcServices__GroupService: http://host.docker.internal:5012
+    # Cùng secret với user-secrets → token do identity (chạy local) cấp vẫn hợp lệ ở đây.
+    Jwt__Secret: ${JWT_SECRET}
+    # Redis Backplane, mặc định bật. Demo tắt (PowerShell):
+    #   $env:CHAT_BACKPLANE="false"; docker compose up -d chat-service-1 chat-service-2
+    # Bật lại: Remove-Item Env:CHAT_BACKPLANE; docker compose up -d chat-service-1 chat-service-2
+    SignalR__RedisBackplane: ${CHAT_BACKPLANE:-true}
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+    kafka-init:
+      condition: service_completed_successfully
+  networks:
+    - chatapp-net
+
 services:
   postgres:
     image: postgres:17-alpine
@@ -116,6 +150,37 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+    networks:
+      - chatapp-net
+
+  # 2 bản chat-service chạy trong container (Phần 8). Các service khác vẫn chạy bằng dotnet run trên Windows.
+  # Build lại sau khi sửa code: docker compose up -d --build chat-service-1 chat-service-2
+  # Cổng 5003/5013 trên Windows → 8080 trong container: để demo nối THẲNG vào từng bản.
+  chat-service-1:
+    <<: *chat-service
+    container_name: chat-service-1
+    ports:
+      - "5003:8080"
+
+  chat-service-2:
+    <<: *chat-service
+    container_name: chat-service-2
+    ports:
+      - "5013:8080"
+
+  # Load balancer chia kết nối cho 2 bản chat-service. Gateway (chạy trên Windows) gọi localhost:5080.
+  # Sửa nginx.conf xong: docker compose restart nginx
+  nginx:
+    image: nginx:1.29-alpine
+    container_name: nginx
+    ports:
+      - "5080:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Không chờ "healthy": nginx tự phân giải tên lúc chạy (resolve), bản nào chưa lên thì chưa được chia tới.
+    depends_on:
+      - chat-service-1
+      - chat-service-2
     networks:
       - chatapp-net
 
