@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>ChatApp – Đăng nhập</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0866FF;font-weight:600}a:hover{color:#0552CC}
+</style>
+</helmet>
+<div class="ca-app">
+<div style="display: flex; flex-wrap: wrap; min-height: 800px">
+
+<section style="flex: 1 1 420px; background: var(--brand); color: #FFFFFF; padding: 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 40px; overflow: hidden">
+<div style="font-size: 24px; line-height: 30px; font-weight: 700">ChatApp</div>
+<div style="display: flex; flex-direction: column; gap: 10px; max-width: 360px" aria-hidden="true">
+<div style="align-self: flex-start; background: rgba(255,255,255,.18); padding: 10px 16px; border-radius: 18px">Tối nay họp nhóm lúc mấy giờ?</div>
+<div style="align-self: flex-end; background: #FFFFFF; color: #0866FF; padding: 10px 16px; border-radius: 18px; font-weight: 600">8 giờ nhé!</div>
+<div style="align-self: flex-start; background: rgba(255,255,255,.18); padding: 10px 16px; border-radius: 18px">Ok, mình vào đúng giờ</div>
+</div>
+<div style="display: flex; flex-direction: column; gap: 8px; max-width: 420px">
+<h2 style="margin: 0; font-size: 40px; line-height: 46px; font-weight: 700; letter-spacing: -0.02em">Trò chuyện cùng nhóm, mọi lúc.</h2>
+<p style="margin: 0; font-size: 16px; line-height: 24px; color: #FFFFFF; opacity: .92">Tin nhắn đến ngay lập tức, không bao giờ trùng, và vẫn gửi được khi mạng chập chờn.</p>
+</div>
+</section>
+
+<section style="flex: 1 1 420px; display: flex; align-items: center; justify-content: center; padding: 48px 24px; background: var(--surface)">
+<form style="width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 18px" onsubmit="return false">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 class="ca-h1">Đăng nhập</h1>
+<div style="color: var(--ink-muted)">Chào mừng trở lại, nhóm của bạn đang chờ.</div>
+</div>
+<sc-if value="{{hasError}}" hint-placeholder-val="{{ false }}">
+<div class="ca-alert warn" role="alert" style="background: #FDECEE"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#E41E3F" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg><span>Tên đăng nhập hoặc mật khẩu không đúng.</span></div>
+</sc-if>
+<div class="ca-field"><label for="u">Tên đăng nhập</label><input id="u" type="text" value="duong" autocomplete="username"></div>
+<div class="ca-field"><label for="p">Mật khẩu</label><input id="p" type="password" value="123456" autocomplete="current-password"></div>
+<button class="ca-btn primary" type="submit" style="width: 100%">Đăng nhập</button>
+<div style="text-align: center; color: var(--ink-muted)">Chưa có tài khoản? <a href="Register.dc.html">Đăng ký</a></div>
+</form>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"showError":{"editor":"boolean","default":false,"section":"Trạng thái"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return { hasError: this.props.showError ?? false }; }
+}
+</script>
+</body>
+</html>

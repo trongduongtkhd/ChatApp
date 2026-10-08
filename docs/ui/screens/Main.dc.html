@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>ChatApp – Khung chat</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0866FF}a:hover{color:#0552CC}
+</style>
+</helmet>
+<div class="{{rootClass}}">
+<div class="ca-shell">
+
+<aside class="ca-side" aria-label="Danh sách nhóm">
+<div class="ca-side-head">
+<h1 class="ca-h1">Đoạn chat</h1>
+<div style="display: flex; gap: 8px">
+<button class="ca-iconbtn" type="button" aria-label="Tạo nhóm mới"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg></button>
+</div>
+</div>
+<label class="ca-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input type="search" placeholder="Tìm kiếm nhóm" aria-label="Tìm kiếm nhóm"></label>
+<nav class="ca-list">
+<a class="ca-item active" href="#"><span class="ca-avatar">ĐA<span class="dot"></span></span><span class="txt"><div class="name">Đồ án Phân tán</div><div class="prev">Bạn: Nhớ mang laptop · 2 phút</div></span></a>
+<a class="ca-item unread" href="#"><span class="ca-avatar">BĐ<span class="dot"></span></span><span class="txt"><div class="name">Bóng đá thứ 7</div><div class="prev">Minh: Sân số 3 nhé anh em · 5 phút</div></span><span class="ca-badge">3</span></a>
+<a class="ca-item unread" href="#"><span class="ca-avatar">LP</span><span class="txt"><div class="name">Lớp Ứng dụng phân tán</div><div class="prev">Thầy Hùng: Nộp báo cáo trước thứ 6 · 1 giờ</div></span><span class="ca-badge">12</span></a>
+<a class="ca-item" href="#"><span class="ca-avatar">GĐ</span><span class="txt"><div class="name">Gia đình</div><div class="prev">Mẹ: Cuối tuần về ăn cơm nhé · 3 giờ</div></span></a>
+<a class="ca-item" href="#"><span class="ca-avatar">KT</span><span class="txt"><div class="name">CLB Kỹ thuật</div><div class="prev">Bạn: Ok, mình đăng ký · Hôm qua</div></span></a>
+<a class="ca-item" href="#"><span class="ca-avatar">NT</span><span class="txt"><div class="name">Nhóm thực tập</div><div class="prev">Lan: Đã gửi file CV · Thứ 2</div></span></a>
+</nav>
+</aside>
+
+<main class="ca-main">
+<header class="ca-head">
+<span class="ca-avatar md">ĐA<span class="dot"></span></span>
+<div class="txt">
+<h2 class="ca-h2">Đồ án Phân tán</h2>
+<div class="ca-meta">4 thành viên · Lan, Minh đang hoạt động</div>
+</div>
+<button class="ca-iconbtn ghost" type="button" aria-label="Thành viên nhóm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"></circle><path d="M2 21a7 7 0 0 1 14 0"></path><path d="M16 4a4 4 0 0 1 0 8"></path><path d="M22 21a7 7 0 0 0-5-6.7"></path></svg></button>
+<button class="ca-iconbtn ghost" type="button" aria-label="Thông tin nhóm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 16v-4"></path><path d="M12 8h.01"></path></svg></button>
+</header>
+
+<sc-if value="{{isReconnecting}}" hint-placeholder-val="{{ false }}">
+<div class="ca-banner reconnecting" role="status"><span class="ca-spin"></span>Đang kết nối lại… Tin bạn gửi sẽ được gửi khi có kết nối.</div>
+</sc-if>
+<sc-if value="{{isReconnected}}" hint-placeholder-val="{{ false }}">
+<div class="ca-banner connected" role="status"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg>Đã kết nối lại</div>
+</sc-if>
+
+<div class="ca-thread">
+<div class="ca-loading"><span class="ca-spin"></span>Đang tải tin cũ…</div>
+<div class="ca-day">HÔM NAY 19:42</div>
+
+<div class="ca-sender">Lan</div>
+<div class="ca-group">
+<span class="ca-avatar sm">L<span class="dot"></span></span>
+<div class="col">
+<div class="ca-msg in">Tối nay họp nhóm lúc mấy giờ vậy?</div>
+<div class="ca-msg in">Mình cần chuẩn bị slide phần Kafka với Outbox</div>
+</div>
+</div>
+
+<div class="ca-out">
+<div class="ca-msg out">8 giờ nhé, họp qua Meet</div>
+<div class="ca-msg out">Lan làm luôn phần demo tắt Kafka được không?</div>
+</div>
+
+<div class="ca-sender">Minh</div>
+<div class="ca-group">
+<span class="ca-avatar sm">M<span class="dot"></span></span>
+<div class="col">
+<div class="ca-msg in">Mình lo phần Redis Backplane, có ảnh chụp trước và sau rồi</div>
+</div>
+</div>
+
+<div class="ca-out">
+<div class="ca-msg out">Tuyệt, gửi vào nhóm luôn nhé</div>
+<div class="ca-status">Đã gửi <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></div>
+<div class="ca-msg out sending">Mình gửi link Meet sau</div>
+<div class="ca-status">Đang gửi…</div>
+<div class="ca-msg out">Nhớ mang laptop</div>
+<div class="ca-status failed">Không gửi được · <button class="ca-link" type="button">Gửi lại</button></div>
+</div>
+</div>
+
+<form class="ca-composer" onsubmit="return false">
+<button class="ca-iconbtn ghost" type="button" aria-label="Đính kèm"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8"></path><path d="M8 12h8"></path></svg></button>
+<input type="text" placeholder="Aa" aria-label="Nhập tin nhắn">
+<button class="ca-send" type="submit" aria-label="Gửi"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4z"></path></svg></button>
+</form>
+</main>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light","section":"Giao diện"},"connection":{"editor":"enum","options":["normal","reconnecting","reconnected"],"default":"normal","section":"Trạng thái kết nối"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+const theme = this.props.theme ?? 'light';
+const conn = this.props.connection ?? 'normal';
+return {
+rootClass: theme === 'dark' ? 'ca-app dark' : 'ca-app',
+isReconnecting: conn === 'reconnecting',
+isReconnected: conn === 'reconnected'
+};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>ChatApp – Sửa nhóm, xung đột</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div class="ca-app" style="position: relative; min-height: 800px">
+<div class="ca-shell" aria-hidden="true">
+<aside class="ca-side"><div class="ca-side-head"><h1 class="ca-h1">Đoạn chat</h1></div>
+<div class="ca-list">
+<div class="ca-item active"><span class="ca-avatar">ĐA</span><span class="txt"><div class="name">Đồ án Phân tán</div><div class="prev">Bạn: Nhớ mang laptop</div></span></div>
+<div class="ca-item"><span class="ca-avatar">GĐ</span><span class="txt"><div class="name">Gia đình</div><div class="prev">Mẹ: Cuối tuần về ăn cơm nhé</div></span></div>
+</div></aside>
+<main class="ca-main"></main>
+</div>
+
+<div class="ca-scrim">
+<div class="ca-dialog" role="dialog" aria-modal="true" aria-labelledby="eg-title">
+<div class="ca-dialog-head">
+<h2 class="ca-h2" id="eg-title">Sửa thông tin nhóm</h2>
+<button class="ca-iconbtn" type="button" aria-label="Đóng"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg></button>
+</div>
+<div class="ca-dialog-body">
+<sc-if value="{{isConflict}}" hint-placeholder-val="{{ true }}">
+<div class="ca-alert warn" role="alert">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div><strong>Nhóm vừa được người khác sửa.</strong> Thay đổi của bạn chưa được lưu để không ghi đè lên họ.</div>
+<div style="font-size: 13px; line-height: 18px; color: var(--ink-muted)">Tên hiện tại: <strong style="color: var(--ink)">Đồ án Phân tán – nhóm 1</strong></div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button class="ca-btn secondary" type="button" style="height: 36px; font-size: 14px">Tải lại bản mới</button>
+</div>
+</div>
+</div>
+</sc-if>
+<div class="ca-field"><label for="en">Tên nhóm</label><input id="en" type="text" value="Đồ án Phân tán – nhóm 10"></div>
+<div class="ca-field"><label for="ed">Mô tả</label><textarea id="ed">Nhóm làm đồ án môn Ứng dụng phân tán</textarea></div>
+</div>
+<div class="ca-dialog-foot">
+<button class="ca-btn secondary" type="button">Hủy</button>
+<button class="ca-btn primary" type="button">Lưu thay đổi</button>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"conflict":{"editor":"boolean","default":true,"section":"Trạng thái"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return { isConflict: this.props.conflict ?? true }; }
+}
+</script>
+</body>
+</html>

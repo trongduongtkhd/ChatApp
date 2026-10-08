@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>ChatApp – Trạng thái trống và lỗi</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0866FF}a:hover{color:#0552CC}
+</style>
+</helmet>
+<div class="ca-app">
+<div class="ca-shell">
+
+<aside class="ca-side" aria-label="Danh sách nhóm">
+<div class="ca-side-head"><h1 class="ca-h1">Đoạn chat</h1></div>
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{ true }}">
+<div style="padding: 32px 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center">
+<div style="font-weight: 600">Chưa có nhóm nào</div>
+<div class="ca-meta">Tạo nhóm đầu tiên hoặc chờ bạn bè thêm bạn vào nhóm.</div>
+</div>
+</sc-if>
+<sc-if value="{{hasGroups}}" hint-placeholder-val="{{ false }}">
+<nav class="ca-list">
+<a class="ca-item active" href="#"><span class="ca-avatar">ĐA</span><span class="txt"><div class="name">Đồ án Phân tán</div><div class="prev">Bạn: Nhớ mang laptop · 2 phút</div></span></a>
+<a class="ca-item" href="#"><span class="ca-avatar">GĐ</span><span class="txt"><div class="name">Gia đình</div><div class="prev">Mẹ: Cuối tuần về ăn cơm nhé · 3 giờ</div></span></a>
+</nav>
+</sc-if>
+</aside>
+
+<main class="ca-main" style="align-items: center; justify-content: center; padding: 48px 24px">
+<sc-if value="{{isEmpty}}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 420px; text-align: center">
+<div style="width: 96px; height: 96px; border-radius: 9999px; background: var(--brand-soft); color: var(--brand); display: flex; align-items: center; justify-content: center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg></div>
+<h2 class="ca-h1">Bắt đầu trò chuyện</h2>
+<p style="margin: 0; color: var(--ink-muted)">Tạo một nhóm, thêm bạn bè và nhắn tin theo thời gian thực.</p>
+<button class="ca-btn primary" type="button">Tạo nhóm mới</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isForbidden}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 420px; text-align: center">
+<div style="width: 96px; height: 96px; border-radius: 9999px; background: var(--surface-alt); color: var(--ink-muted); display: flex; align-items: center; justify-content: center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+<h2 class="ca-h1">Bạn không còn là thành viên nhóm này</h2>
+<p style="margin: 0; color: var(--ink-muted)">Trưởng nhóm đã xóa bạn khỏi nhóm hoặc nhóm đã bị xóa.</p>
+<button class="ca-btn secondary" type="button">Về danh sách nhóm</button>
+</div>
+</sc-if>
+
+<sc-if value="{{isUnavailable}}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; align-items: center; gap: 16px; max-width: 440px; text-align: center">
+<div style="width: 96px; height: 96px; border-radius: 9999px; background: var(--warning-soft); color: var(--warning); display: flex; align-items: center; justify-content: center"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div>
+<h2 class="ca-h1">Hệ thống đang gián đoạn</h2>
+<p style="margin: 0; color: var(--ink-muted)">Tạm thời chưa mở được nhóm này. Các nhóm bạn vừa mở gần đây vẫn nhắn tin được. Thử lại sau ít phút.</p>
+<button class="ca-btn primary" type="button">Thử lại</button>
+</div>
+</sc-if>
+</main>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"state":{"editor":"enum","options":["empty","forbidden","unavailable"],"default":"empty","section":"Trạng thái"},"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() {
+const s = this.props.state ?? 'empty';
+return { isEmpty: s === 'empty', hasGroups: s !== 'empty', isForbidden: s === 'forbidden', isUnavailable: s === 'unavailable' };
+}
+}
+</script>
+</body>
+</html>

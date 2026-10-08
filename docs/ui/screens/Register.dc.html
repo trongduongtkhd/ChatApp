@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>ChatApp – Đăng ký</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#0866FF;font-weight:600}a:hover{color:#0552CC}
+</style>
+</helmet>
+<div class="ca-app">
+<div style="display: flex; flex-wrap: wrap; min-height: 800px">
+
+<section style="flex: 1 1 420px; background: var(--brand); color: #FFFFFF; padding: 56px; display: flex; flex-direction: column; justify-content: space-between; gap: 40px">
+<div style="font-size: 24px; line-height: 30px; font-weight: 700">ChatApp</div>
+<div style="display: flex; flex-direction: column; gap: 20px; max-width: 400px">
+<h2 style="margin: 0; font-size: 40px; line-height: 46px; font-weight: 700; letter-spacing: -0.02em">Tạo tài khoản, vào nhóm ngay.</h2>
+<div style="display: flex; flex-direction: column; gap: 14px; font-size: 16px; line-height: 22px">
+<div style="display: flex; gap: 12px; align-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9z"></path></svg>Tin nhắn thời gian thực</div>
+<div style="display: flex; gap: 12px; align-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"></path><path d="M21 3v5h-5"></path></svg>Tự kết nối lại khi mất mạng</div>
+<div style="display: flex; gap: 12px; align-items: center"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>Mật khẩu được mã hóa an toàn</div>
+</div>
+</div>
+<div style="font-size: 13px; opacity: .85">Đồ án môn Ứng dụng phân tán</div>
+</section>
+
+<section style="flex: 1 1 420px; display: flex; align-items: center; justify-content: center; padding: 48px 24px; background: var(--surface)">
+<form style="width: 100%; max-width: 400px; display: flex; flex-direction: column; gap: 16px" onsubmit="return false">
+<h1 class="ca-h1">Đăng ký</h1>
+<div class="ca-field"><label for="dn">Tên hiển thị</label><input id="dn" type="text" value="Nguyễn Trọng Dương"><span class="hint">Tên mọi người sẽ thấy trong khung chat.</span></div>
+<div class="ca-field invalid"><label for="un">Tên đăng nhập</label><input id="un" type="text" value="duong" aria-invalid="true" aria-describedby="un-err"><span class="err" id="un-err">Tên đăng nhập này đã có người dùng.</span></div>
+<div class="ca-field"><label for="em">Email</label><input id="em" type="email" value="duong@example.com"></div>
+<div class="ca-field"><label for="pw">Mật khẩu</label><input id="pw" type="password" value="12345678"><span class="hint">Tối thiểu 6 ký tự.</span></div>
+<button class="ca-btn primary" type="submit" style="width: 100%">Tạo tài khoản</button>
+<div style="text-align: center; color: var(--ink-muted)">Đã có tài khoản? <a href="Login.dc.html">Đăng nhập</a></div>
+</form>
+</section>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":800}}'>
+class Component extends DCLogic {
+renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
