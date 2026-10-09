@@ -129,6 +129,7 @@ services:
         T=/opt/kafka/bin/kafka-topics.sh
         B=kafka:29092
         $$T --bootstrap-server $$B --create --if-not-exists --topic identity.user-registered --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic identity.friendship-changed --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-added      --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-removed    --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic chat.message-sent       --partitions 3 --replication-factor 1

@@ -13,6 +13,11 @@ public class GroupManagementService(GroupDbContext db)
     // Mã lỗi PostgreSQL khi vi phạm unique/primary key.
     private const string UniqueViolation = "23505";
 
+    // Nhóm chat riêng (Phần 11) chỉ thay đổi theo sự kiện kết bạn / hủy kết bạn (DirectChatService).
+    // Phép chặn này đặt TRƯỚC mọi kiểm tra OwnerId: OwnerId của nhóm riêng = user_low_id chỉ để lấp cột,
+    // nếu kiểm tra OwnerId trước thì người đó sẽ bị coi là chủ nhóm (sửa / xóa nhóm, thêm người lạ vào chat riêng).
+    private const string DirectChatNotAllowed = "Không áp dụng cho cuộc trò chuyện riêng";
+
     public async Task<ServiceResult<GroupDto>> CreateAsync(Guid currentUserId, CreateGroupRequest request, CancellationToken ct)
     {
         var group = new Group
@@ -44,7 +49,21 @@ public class GroupManagementService(GroupDbContext db)
             .AsNoTracking()
             .ToListAsync(ct);
 
-        return rows.Select(r => ToDto(r.Group, r.Role)).ToList();
+        // Chat riêng: tìm "người kia" của mọi nhóm riêng trong MỘT câu truy vấn (không N+1).
+        var directIds = rows.Where(r => r.Group.IsDirect).Select(r => r.Group.Id).ToList();
+        var peers = directIds.Count == 0
+            ? new Dictionary<Guid, PeerDto>()
+            : (await (
+                    from m in db.GroupMembers
+                    where directIds.Contains(m.GroupId) && m.UserId != currentUserId
+                    join s in db.UserSnapshots on m.UserId equals s.UserId into snapshots
+                    from s in snapshots.DefaultIfEmpty()
+                    select new { m.GroupId, Peer = new PeerDto(m.UserId, (string?)s!.UserName, (string?)s!.DisplayName) })
+                .AsNoTracking()
+                .ToListAsync(ct))
+              .ToDictionary(x => x.GroupId, x => x.Peer);
+
+        return rows.Select(r => ToDto(r.Group, r.Role, peers.GetValueOrDefault(r.Group.Id))).ToList();
     }
 
     public async Task<ServiceResult<GroupDetailDto>> GetDetailAsync(Guid currentUserId, Guid groupId, CancellationToken ct)
@@ -72,7 +91,11 @@ public class GroupManagementService(GroupDbContext db)
             .Select(m => new MemberDto(m.UserId, m.UserName, m.DisplayName, m.Role.ToString(), m.JoinedAt))
             .ToList();
 
-        return ServiceResult<GroupDetailDto>.Ok(new GroupDetailDto(ToDto(group, myMembership.Role), memberDtos));
+        var peer = group.IsDirect
+            ? members.Where(m => m.UserId != currentUserId).Select(m => new PeerDto(m.UserId, m.UserName, m.DisplayName)).FirstOrDefault()
+            : null;
+
+        return ServiceResult<GroupDetailDto>.Ok(new GroupDetailDto(ToDto(group, myMembership.Role, peer), memberDtos));
     }
 
     public async Task<ServiceResult<GroupDto>> UpdateAsync(Guid currentUserId, Guid groupId, UpdateGroupRequest request, CancellationToken ct)
@@ -80,6 +103,8 @@ public class GroupManagementService(GroupDbContext db)
         var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId, ct);
         if (group is null)
             return ServiceResult<GroupDto>.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
+        if (group.IsDirect)
+            return ServiceResult<GroupDto>.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
         if (group.OwnerId != currentUserId)
             return ServiceResult<GroupDto>.Fail(ServiceError.Forbidden, "Chỉ Owner được sửa nhóm");
 
@@ -111,6 +136,8 @@ public class GroupManagementService(GroupDbContext db)
         var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId, ct);
         if (group is null)
             return ServiceResult.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
+        if (group.IsDirect)
+            return ServiceResult.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
         if (group.OwnerId != currentUserId)
             return ServiceResult.Fail(ServiceError.Forbidden, "Chỉ Owner được xóa nhóm");
 
@@ -136,6 +163,8 @@ public class GroupManagementService(GroupDbContext db)
         var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
         if (group is null)
             return ServiceResult<MemberDto>.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
+        if (group.IsDirect)
+            return ServiceResult<MemberDto>.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
         if (group.OwnerId != currentUserId)
             return ServiceResult<MemberDto>.Fail(ServiceError.Forbidden, "Chỉ Owner được thêm thành viên");
 
@@ -170,6 +199,9 @@ public class GroupManagementService(GroupDbContext db)
         var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
         if (group is null)
             return ServiceResult.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
+        // Cả "tự rời" chat riêng cũng chặn: muốn thôi thì hủy kết bạn (identity) → sự kiện Removed gỡ cả 2.
+        if (group.IsDirect)
+            return ServiceResult.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
 
         // Owner xóa người khác, hoặc chính người đó tự rời nhóm.
         var isOwner = group.OwnerId == currentUserId;
@@ -218,6 +250,7 @@ public class GroupManagementService(GroupDbContext db)
         db.AddOutboxEvent(KafkaTopics.MemberRemoved, groupId.ToString(),
             new MemberRemoved(groupId, userId));
 
-    private static GroupDto ToDto(Group g, GroupRole myRole) =>
-        new(g.Id, g.Name, g.Description, g.OwnerId, myRole.ToString(), g.Version, g.CreatedAt, g.UpdatedAt);
+    // MyRole lấy từ group_members.Role (không suy từ OwnerId) → chat riêng cả 2 đều "Member".
+    private static GroupDto ToDto(Group g, GroupRole myRole, PeerDto? peer = null) =>
+        new(g.Id, g.Name, g.Description, g.OwnerId, myRole.ToString(), g.Version, g.CreatedAt, g.UpdatedAt, g.IsDirect, peer);
 }

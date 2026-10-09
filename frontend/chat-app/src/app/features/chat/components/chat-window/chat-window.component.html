@@ -1,0 +1,72 @@
+<ng-container [ngSwitch]="state">
+  <div *ngSwitchCase="'loading'" class="ca-loading" style="margin: auto"><span class="ca-spin"></span>Đang mở nhóm…</div>
+
+  <!-- Empty.dc.html, trạng thái "forbidden" -->
+  <div *ngSwitchCase="'forbidden'" class="ca-state">
+    <div class="ca-state-icon"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg></div>
+    <ng-container *ngIf="isDirect; else groupForbidden">
+      <!-- Chat riêng bị hủy kết bạn (Phần 11): nhóm và lịch sử vẫn còn ở server, chỉ gỡ 2 thành viên -->
+      <h2 class="ca-h1">Hai bạn không còn là bạn bè</h2>
+      <p>Cuộc trò chuyện riêng đã đóng. Lịch sử tin nhắn được giữ lại và sẽ hiện lại nếu hai bạn kết bạn lần nữa.</p>
+      <div style="display: flex; gap: 8px; justify-content: center">
+        <button class="ca-btn secondary" type="button" (click)="backToList()">Về danh sách</button>
+        <a class="ca-btn primary" routerLink="/contacts">Mở Danh bạ</a>
+      </div>
+    </ng-container>
+    <ng-template #groupForbidden>
+      <h2 class="ca-h1">Bạn không còn là thành viên nhóm này</h2>
+      <p>Trưởng nhóm đã xóa bạn khỏi nhóm hoặc nhóm đã bị xóa.</p>
+      <button class="ca-btn secondary" type="button" (click)="backToList()">Về danh sách nhóm</button>
+    </ng-template>
+  </div>
+
+  <!-- Empty.dc.html, trạng thái "unavailable" -->
+  <div *ngSwitchCase="'unavailable'" class="ca-state">
+    <div class="ca-state-icon warning"><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg></div>
+    <h2 class="ca-h1">Hệ thống đang gián đoạn</h2>
+    <p>Tạm thời chưa mở được nhóm này. Các nhóm bạn vừa mở gần đây vẫn nhắn tin được. Thử lại sau ít phút.</p>
+    <button class="ca-btn primary" type="button" (click)="retry()">Thử lại</button>
+  </div>
+
+  <ng-container *ngSwitchCase="'ready'">
+    <!-- Cột chat + panel thành viên bên phải (Members.dc.html: .ca-panel đứng cạnh khung chat) -->
+    <div class="cw-col">
+      <header class="ca-head">
+        <app-avatar [name]="title" [kind]="isDirect ? 'user' : 'group'" size="md" [online]="activeNames.length > 0"></app-avatar>
+        <div class="txt">
+          <h2 class="ca-h2">{{ title }}</h2>
+          <ng-container *ngIf="detail; else noDetail">
+            <!-- Chat riêng: không có "N thành viên" (luôn là 2), chỉ trạng thái của người kia -->
+            <div class="ca-meta" *ngIf="isDirect">{{ activeNames.length ? 'Đang hoạt động' : 'Trò chuyện riêng' }}</div>
+            <div class="ca-meta" *ngIf="!isDirect">
+              {{ memberCount }} thành viên<ng-container *ngIf="activeNames.length"> · {{ activeNames.join(', ') }} đang hoạt động</ng-container>
+            </div>
+          </ng-container>
+          <ng-template #noDetail><div class="ca-meta">Không tải được thông tin nhóm</div></ng-template>
+        </div>
+        <!-- Chat riêng không có panel thành viên: không sửa nhóm, thêm/xóa người, rời/xóa được (server cũng chặn 400) -->
+        <button *ngIf="detail && !isDirect" class="ca-iconbtn ghost" type="button" aria-label="Thành viên nhóm" title="Thành viên nhóm"
+                [attr.aria-pressed]="showMembers" [class.on]="showMembers" (click)="showMembers = !showMembers">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"></circle><path d="M2 21a7 7 0 0 1 14 0"></path><path d="M16 4a4 4 0 0 1 0 8"></path><path d="M22 21a7 7 0 0 0-5-6.7"></path></svg>
+        </button>
+      </header>
+
+      <app-connection-banner [status]="banner$ | async" (retry)="retryConnection()"></app-connection-banner>
+
+      <app-message-list
+        [messages]="messages" [myId]="myId" [onlineIds]="onlineIds"
+        [pending]="pending"
+        [loadingOlder]="loadingOlder" [olderError]="olderError" [reachedStart]="reachedStart"
+        (loadOlder)="loadOlder()" (resend)="resend($event)">
+      </app-message-list>
+
+      <app-message-input [error]="sendError" (send)="send($event)"></app-message-input>
+    </div>
+
+    <app-member-panel *ngIf="showMembers && detail && !isDirect" [detail]="detail" [myId]="myId" [onlineIds]="onlineIds"
+                      (edit)="editing = true" (changed)="reloadDetail()" (gone)="onGroupGone()"></app-member-panel>
+  </ng-container>
+</ng-container>
+
+<app-edit-group-dialog *ngIf="editing && detail && !isDirect" [group]="detail.group"
+                       (closed)="editing = false" (saved)="onGroupSaved()"></app-edit-group-dialog>

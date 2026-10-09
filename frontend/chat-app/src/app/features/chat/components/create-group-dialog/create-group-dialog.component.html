@@ -1,0 +1,81 @@
+<div class="ca-scrim" (click)="close()">
+  <form class="ca-dialog" role="dialog" aria-modal="true" aria-labelledby="cg-title"
+        [formGroup]="form" (ngSubmit)="submit()" (click)="$event.stopPropagation()" novalidate>
+    <div class="ca-dialog-head">
+      <h2 class="ca-h2" id="cg-title">Tạo nhóm mới</h2>
+      <button class="ca-iconbtn" type="button" aria-label="Đóng" (click)="close()" [disabled]="saving">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+
+    <div class="ca-dialog-body">
+      <div *ngIf="error" class="ca-alert error" role="alert">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+        <span>{{ error }}</span>
+      </div>
+
+      <!-- Đã tạo nhóm nhưng thêm hụt người: báo rõ, không giả vờ là thành công trọn vẹn. -->
+      <div *ngIf="createdGroup" class="ca-alert warn" role="alert">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+        <span>Đã tạo nhóm “{{ createdGroup.name }}” nhưng chưa thêm được: {{ failedNames.join(', ') }}. Bạn có thể thêm lại trong phần Thành viên.</span>
+      </div>
+
+      <ng-container *ngIf="!createdGroup">
+        <div class="ca-field" [class.invalid]="fieldError('name')">
+          <label for="gn">Tên nhóm</label>
+          <input #nameInput id="gn" type="text" formControlName="name" [attr.aria-invalid]="!!fieldError('name')" aria-describedby="gn-msg">
+          <span *ngIf="fieldError('name') as e" class="err" id="gn-msg">{{ e }}</span>
+        </div>
+
+        <div class="ca-field" [class.invalid]="fieldError('description')">
+          <label for="gd">Mô tả (không bắt buộc)</label>
+          <textarea id="gd" formControlName="description" aria-describedby="gd-msg"></textarea>
+          <span *ngIf="fieldError('description') as e" class="err" id="gd-msg">{{ e }}</span>
+        </div>
+
+        <div class="ca-field">
+          <label for="gm">Thêm thành viên</label>
+          <input id="gm" type="search" placeholder="Tìm theo tên hoặc tên đăng nhập" autocomplete="off" [formControl]="memberQuery">
+        </div>
+
+        <div *ngIf="selected.length" style="display: flex; flex-wrap: wrap; gap: 6px">
+          <button *ngFor="let u of selected" class="ca-chip" type="button" style="height: 28px; gap: 6px"
+                  [attr.aria-label]="'Bỏ ' + u.displayName" (click)="toggle(u)">
+            {{ u.displayName }}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+          </button>
+        </div>
+
+        <div *ngIf="memberQuery.value.trim()" style="display: flex; flex-direction: column; gap: 2px; border: 1px solid var(--line); border-radius: 8px; padding: 4px">
+          <div *ngIf="searching" class="ca-loading"><span class="ca-spin"></span>Đang tìm…</div>
+          <ng-container *ngIf="!searching">
+            <button *ngFor="let u of results" class="ca-item" type="button" style="min-height: 52px"
+                    [attr.aria-pressed]="isSelected(u)" (click)="toggle(u)">
+              <app-avatar [name]="u.displayName" size="md"></app-avatar>
+              <span class="txt"><div class="name">{{ u.displayName }}</div><div class="prev">&#64;{{ u.userName }}</div></span>
+              <span *ngIf="isSelected(u)" style="color: var(--brand)">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg>
+              </span>
+            </button>
+            <div *ngIf="!results.length" class="ca-meta" style="padding: 12px; text-align: center">
+              {{ searchError ? 'Không tìm được lúc này. Thử lại sau.' : 'Không tìm thấy người dùng nào.' }}
+            </div>
+          </ng-container>
+        </div>
+      </ng-container>
+    </div>
+
+    <div class="ca-dialog-foot">
+      <ng-container *ngIf="!createdGroup; else doneTpl">
+        <button class="ca-btn secondary" type="button" (click)="close()" [disabled]="saving">Hủy</button>
+        <button class="ca-btn primary" type="submit" [disabled]="saving">
+          <span *ngIf="saving" class="ca-spin"></span>
+          {{ saving ? 'Đang tạo…' : 'Tạo nhóm' }}
+        </button>
+      </ng-container>
+      <ng-template #doneTpl>
+        <button class="ca-btn primary" type="button" (click)="close()">Xong</button>
+      </ng-template>
+    </div>
+  </form>
+</div>

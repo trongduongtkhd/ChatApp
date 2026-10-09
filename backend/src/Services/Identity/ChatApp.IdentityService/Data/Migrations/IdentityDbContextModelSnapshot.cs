@@ -77,6 +77,65 @@ namespace ChatApp.IdentityService.Data.Migrations
                     b.ToTable("outbox_messages", (string)null);
                 });
 
+            modelBuilder.Entity("ChatApp.IdentityService.Entities.Friendship", b =>
+                {
+                    b.Property<Guid>("UserLowId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_low_id");
+
+                    b.Property<Guid>("UserHighId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_high_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("RequesterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requester_id");
+
+                    b.Property<DateTimeOffset?>("RespondedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("responded_at");
+
+                    b.Property<int>("Revision")
+                        .HasColumnType("integer")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.Property<uint>("Version")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
+                    b.HasKey("UserLowId", "UserHighId")
+                        .HasName("pk_friendships");
+
+                    b.HasIndex("RequesterId")
+                        .HasDatabaseName("ix_friendships_requester_id");
+
+                    b.HasIndex("UserHighId")
+                        .HasDatabaseName("ix_friendships_user_high_id");
+
+                    b.ToTable("friendships", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_friendships_pair_order", "user_low_id < user_high_id");
+
+                            t.HasCheckConstraint("ck_friendships_requester_in_pair", "requester_id IN (user_low_id, user_high_id)");
+                        });
+                });
+
             modelBuilder.Entity("ChatApp.IdentityService.Entities.User", b =>
                 {
                     b.Property<Guid>("Id")
@@ -122,6 +181,30 @@ namespace ChatApp.IdentityService.Data.Migrations
                         .HasDatabaseName("ix_users_user_name");
 
                     b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("ChatApp.IdentityService.Entities.Friendship", b =>
+                {
+                    b.HasOne("ChatApp.IdentityService.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("RequesterId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_friendships_users_requester_id");
+
+                    b.HasOne("ChatApp.IdentityService.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserHighId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_friendships_users_user_high_id");
+
+                    b.HasOne("ChatApp.IdentityService.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("UserLowId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_friendships_users_user_low_id");
                 });
 #pragma warning restore 612, 618
         }

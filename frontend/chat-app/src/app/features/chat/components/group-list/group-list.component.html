@@ -1,0 +1,50 @@
+<label class="ca-search">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
+  <input type="search" placeholder="Tìm kiếm" aria-label="Tìm kiếm nhóm" [(ngModel)]="query">
+</label>
+
+<div class="ca-tabs" role="tablist" aria-label="Lọc cuộc trò chuyện">
+  <button *ngFor="let t of tabs; let i = index" type="button" role="tab" class="ca-tab"
+          [id]="'gl-tab-' + t.id" aria-controls="gl-panel"
+          [class.active]="tab === t.id" [attr.aria-selected]="tab === t.id" [attr.tabindex]="tab === t.id ? 0 : -1"
+          (click)="selectTab(t.id)" (keydown)="onTabKey($event, i)">
+    {{ t.label }}<span *ngIf="t.id === 'unread' && unreadGroups" class="count">{{ unreadGroups }}</span>
+  </button>
+</div>
+
+<nav id="gl-panel" class="ca-list" role="tabpanel" [attr.aria-labelledby]="'gl-tab-' + tab">
+  <a *ngFor="let item of filtered; trackBy: trackById"
+     class="ca-item" [class.unread]="item.unread > 0 && !rla.isActive"
+     [routerLink]="['/chat', item.group.id]" routerLinkActive="active" #rla="routerLinkActive"
+     [attr.aria-current]="rla.isActive ? 'page' : null" (click)="onOpen(item)">
+    <app-avatar [name]="titleOf(item.group)" [kind]="item.group.isDirect ? 'user' : 'group'" [online]="item.group.id === onlineGroupId"></app-avatar>
+    <span class="txt">
+      <span class="row">
+        <span class="name">{{ titleOf(item.group) }}</span>
+        <span *ngIf="item.last" class="time">{{ item.last.createdAt | listTime: now }}</span>
+      </span>
+      <span class="row">
+        <span class="prev" [ngSwitch]="item.last === undefined ? 'loading' : item.last === null ? 'none' : 'msg'">
+          <ng-container *ngSwitchCase="'loading'">&nbsp;</ng-container>
+          <ng-container *ngSwitchCase="'none'">Chưa có tin nhắn</ng-container>
+          <ng-container *ngSwitchCase="'msg'">{{ item.last!.senderId === myId ? 'Bạn' : item.last!.senderName }}: {{ item.last!.content }}</ng-container>
+        </span>
+        <app-unread-badge *ngIf="!rla.isActive" [count]="item.unread"></app-unread-badge>
+      </span>
+    </span>
+  </a>
+
+  <div *ngIf="!filtered.length" class="ca-list-empty">
+    <ng-container *ngIf="query; else tabEmpty">Không có cuộc trò chuyện nào khớp “{{ query }}”.</ng-container>
+    <ng-template #tabEmpty>
+      <ng-container *ngIf="tab === 'unread'">
+        <div class="title">Bạn đã đọc hết tin nhắn</div>
+        <div>Nhóm có tin mới sẽ hiện ở đây.</div>
+      </ng-container>
+      <ng-container *ngIf="tab === 'groups'">
+        <div class="title">Chưa có nhóm nào</div>
+        <div>Tab này chỉ hiện nhóm, không gồm trò chuyện riêng với bạn bè.</div>
+      </ng-container>
+    </ng-template>
+  </div>
+</nav>

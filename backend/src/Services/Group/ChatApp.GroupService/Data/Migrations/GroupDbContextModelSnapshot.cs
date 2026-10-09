@@ -92,6 +92,14 @@ namespace ChatApp.GroupService.Data.Migrations
                         .HasColumnType("character varying(500)")
                         .HasColumnName("description");
 
+                    b.Property<int?>("FriendshipRevision")
+                        .HasColumnType("integer")
+                        .HasColumnName("friendship_revision");
+
+                    b.Property<bool>("IsDirect")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_direct");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)

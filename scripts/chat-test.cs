@@ -15,6 +15,9 @@
 //   dotnet run scripts/chat-test.cs -- cache   # cache thành viên Redis: nạp, TTL, bị xóa khi thêm/xóa thành viên
 //   dotnet run scripts/chat-test.cs -- presence # online/offline: nhiều kết nối của một user, đóng lần lượt
 //   dotnet run scripts/chat-test.cs -- history # REST lịch sử: lật trang bằng beforeSeq, lỗi 400/401/403/404
+//   dotnet run scripts/chat-test.cs -- send --group <groupId> --user lan --count 5 --interval 1500
+//                                               # Phần 10: vào phòng một nhóm CÓ SẴN rồi gửi từ từ → xem tin realtime và
+//                                               # chấm online trên Angular (groupId lấy từ URL /chat/<groupId>)
 //   dotnet run scripts/chat-test.cs -- down    # kịch bản lỗi: tắt group-service giữa chừng (nhóm có cache vẫn chat được) rồi bật lại
 //   dotnet run scripts/chat-test.cs -- backplane # Phần 8: 2 user nối THẲNG vào 2 bản chat-service khác nhau → có thấy tin nhau không
 //   dotnet run scripts/chat-test.cs -- lb      # Phần 8: Nginx chia request/kết nối cho 2 bản; có negotiate thì lỗi 404
@@ -26,6 +29,13 @@
 //   dotnet run scripts/chat-test.cs -- unread   # Phần 9: UnreadCountChanged qua /hubs/notifications (2 tab), đánh dấu đã đọc, tăng lại
 //   dotnet run scripts/chat-test.cs -- dupevent # Phần 9: đẩy cùng một MessageSent 3 lần → chỉ đếm 1 (Idempotent Consumer)
 //                                               # tắt công tắc để thấy sai: $env:Notification__IdempotentConsumer="false" rồi chạy notification-service
+//   dotnet run scripts/chat-test.cs -- friends  # Phần 11: kết bạn → chat riêng tự xuất hiện, chat qua SignalR; hủy kết bạn → gửi bị từ chối,
+//                                               # nhóm thường vẫn chat được; kết bạn lại → lịch sử cũ; sự kiện trùng → không đổi
+//   dotnet run scripts/chat-test.cs -- friendsdown # Phần 11 kịch bản lỗi: TẮT group-service, chấp nhận → hủy → chấp nhận lại, BẬT lại
+//                                               # → đọc bù đúng thứ tự, còn 2 thành viên
+//   dotnet run scripts/chat-test.cs -- stale    # Phần 11 Bước 4b: đẩy lại Removed cũ / cả chuỗi sự kiện cũ → bị bỏ theo revision,
+//                                               # vẫn 2 thành viên, số chưa đọc không về 0 (cần notification-service)
+//   (friends, friendsdown, stale tự đăng ký user mới mỗi lần chạy, mật khẩu Passw0rd!)
 // Tùy chọn: --user duong --other lan --outsider minh --password 123456 --gateway http://localhost:5000 --count 200 --connections 20
 //           --a http://localhost:5003 --b http://localhost:5013 (địa chỉ trực tiếp của bản 1, bản 2)
 //           --negotiate  (bật lại negotiate của SignalR cho mọi chế độ → demo lỗi khi đứng sau Nginx round-robin)
@@ -66,7 +76,11 @@ try
         "snapshot" => await Modes.Snapshot(api, opt),
         "unread" => await Modes.Unread(api, opt),
         "dupevent" => await Modes.DupEvent(api, opt),
-        _ => throw new ArgumentException($"Chế độ không hợp lệ: '{opt.Mode}'. Dùng: basic | grpc | dup | load | seqlost | cache | presence | history | down | backplane | lb | failover | reorder | snapshot | unread | dupevent")
+        "send" => await Modes.Send(api, opt),
+        "friends" => await Modes.Friends(api, opt),
+        "friendsdown" => await Modes.FriendsDown(api, opt),
+        "stale" => await Modes.Stale(api, opt),
+        _ => throw new ArgumentException($"Chế độ không hợp lệ: '{opt.Mode}'. Dùng: basic | grpc | dup | load | seqlost | cache | presence | history | down | backplane | lb | failover | reorder | snapshot | unread | dupevent | send | friends | friendsdown | stale")
     };
     Out.Result(ok);
     return ok ? 0 : 1;
@@ -418,6 +432,27 @@ static class Modes
 
         Out.Info($"\nXem log chat-service: \"Nạp cache {key} từ gRPC\" và \"Xóa cache thành viên {key}\".");
         return checks.All(x => x);
+    }
+
+    // Phần 10 – công cụ demo cho Angular: một user vào phòng nhóm có sẵn, gửi từ từ từng tin, rồi rời đi.
+    // Trình duyệt đang mở nhóm đó sẽ thấy: chấm xanh bật → tin hiện dần → vài giây sau chấm xanh tắt.
+    public static async Task<bool> Send(Api api, Options opt)
+    {
+        if (!Guid.TryParse(opt.Group, out var groupId))
+            throw new ArgumentException("Cần --group <groupId> (lấy từ URL http://localhost:4200/chat/<groupId>)");
+        var u = await api.LoginAsync(opt.User, opt.Password);
+        await using var conn = await ChatClient.ConnectAsync(opt.Gateway, u);
+        var online = await conn.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
+        Out.Info($"{u.UserName} đã vào phòng {groupId}, đang online: {online.Count} người");
+        for (var i = 1; i <= opt.Count; i++)
+        {
+            var m = await conn.SendAsync(groupId, $"Tin {i}/{opt.Count} từ {u.UserName} lúc {DateTime.Now:HH:mm:ss}");
+            Out.Info($"  gửi xong seq {m.SequenceNumber}: {m.Content}");
+            if (i < opt.Count) await Task.Delay(opt.Interval);
+        }
+        Out.Info("Giữ kết nối thêm 3 giây rồi đóng → trình duyệt thấy offline");
+        await Task.Delay(3000);
+        return true;
     }
 
     // Bước 6 – presence: A ngồi trong phòng; B mở 2 kết nối, đóng lần lượt.
@@ -1013,6 +1048,260 @@ static class Modes
         return checks.All(x => x);
     }
 
+    // ---------------- Phần 11: bạn bè + chat riêng ----------------
+
+    const string FreshPassword = "Passw0rd!";
+
+    // Đăng ký user mới (tên theo giờ chạy) rồi chờ group-service có bản sao user_snapshots (identity.user-registered).
+    static async Task<LoggedInUser[]> NewUsersAsync(Api api, params string[] names)
+    {
+        var run = DateTime.Now.ToString("HHmmss");
+        var users = new List<LoggedInUser>();
+        foreach (var n in names)
+        {
+            var userName = $"fr{run}{n}";
+            await api.RegisterAsync(userName, $"{n.ToUpperInvariant()} {run}", FreshPassword);
+            users.Add(await api.LoginAsync(userName, FreshPassword));
+        }
+        var ids = string.Join(",", users.Select(u => $"'{u.UserId}'"));
+        await WaitUntil(() => Psql("group_db", $"select count(*) from user_snapshots where user_id in ({ids})") == users.Count.ToString());
+        Out.Info($"User mới: {string.Join(", ", users.Select(u => u.UserName))} (mật khẩu {FreshPassword})");
+        return users.ToArray();
+    }
+
+    // Key Kafka của sự kiện bạn bè = "{low}:{high}", sắp bằng so chuỗi ordinal (cùng quy ước DirectChat.Order).
+    static string PairKey(Guid a, Guid b) =>
+        string.CompareOrdinal(a.ToString(), b.ToString()) < 0 ? $"{a}:{b}" : $"{b}:{a}";
+
+    // Chờ chat riêng xuất hiện (present = true) / biến mất ở GET /api/groups. Trả số ms, -1 nếu quá hạn.
+    static async Task<long> WaitDirectAsync(Api api, LoggedInUser user, Guid groupId, bool present, int timeoutMs = 10000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if ((await api.GetGroupsAsync(user)).Any(g => g.Id == groupId) == present) return sw.ElapsedMilliseconds;
+            await Task.Delay(100);
+        }
+        return -1;
+    }
+
+    static string Members(Guid groupId) => Psql("group_db", $"select count(*) from group_members where group_id = '{groupId}'");
+    static string AppliedRevision(Guid groupId) => Psql("group_db", $"select coalesce(friendship_revision::text, 'null') from groups where id = '{groupId}'");
+    static int MemberEvents(Guid groupId) => int.Parse(Psql("group_db", $"select count(*) from outbox_messages where key = '{groupId}'"));
+
+    // Payload NGUYÊN VĂN các sự kiện friendship-changed đã phát cho một cặp, theo thứ tự phát (đọc outbox của identity).
+    static List<string> FriendshipEvents(string pairKey, string? change = null) =>
+        Psql("identity_db", $"select payload::text from outbox_messages where key = '{pairKey}'" +
+                            (change is null ? "" : $" and event_type = '{change}'") + " order by occurred_at")
+            .Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    // Mời → chấp nhận; trả mã nhóm chat riêng.
+    static async Task<Guid> BefriendAsync(Api api, LoggedInUser from, LoggedInUser to)
+    {
+        var invited = await api.InviteFriendAsync(from, to.UserId);
+        var (status, gid) = await api.AcceptFriendAsync(to, from.UserId);
+        if (invited != 201 || status != 200 || gid is null)
+            throw new InvalidOperationException($"Kết bạn {from.UserName} → {to.UserName} thất bại: mời {invited}, chấp nhận {status}");
+        return gid.Value;
+    }
+
+    // Phần 11 – luồng chính: kết bạn → chat riêng tự xuất hiện ở cả 2 bên (qua identity → Kafka → group-service),
+    // chat qua SignalR như nhóm thường; hủy kết bạn → mất chat riêng, gửi bị từ chối, nhưng nhóm thường chung vẫn chat được;
+    // kết bạn lại → cùng mã nhóm → thấy lại lịch sử cũ; sự kiện trùng → không đổi gì.
+    public static async Task<bool> Friends(Api api, Options opt)
+    {
+        var users = await NewUsersAsync(api, "a", "b", "c");
+        LoggedInUser a = users[0], b = users[1], c = users[2];
+        var checks = new List<bool>();
+
+        Out.Info("\n(1) A mời B, B chấp nhận:");
+        checks.Add(Out.Check("A mời B → 201", await api.InviteFriendAsync(a, b.UserId) == 201));
+        var (st, gidOrNull) = await api.AcceptFriendAsync(b, a.UserId);
+        var gid = gidOrNull ?? Guid.Empty;
+        checks.Add(Out.Check("B chấp nhận → 200, có directGroupId", st == 200 && gidOrNull is not null, gid.ToString()));
+        var (st2, gid2) = await api.AcceptFriendAsync(b, a.UserId);
+        checks.Add(Out.Check("B chấp nhận lần 2 → 200, cùng mã nhóm", st2 == 200 && gid2 == gid));
+        var msA = await WaitDirectAsync(api, a, gid, true);
+        var msB = await WaitDirectAsync(api, b, gid, true);
+        checks.Add(Out.Check("Chat riêng tự xuất hiện ở cả A và B (eventual consistency)", msA >= 0 && msB >= 0,
+            $"A sau {msA} ms, B sau {msB} ms"));
+        var itemA = (await api.GetGroupsAsync(a)).FirstOrDefault(g => g.Id == gid);
+        var itemB = (await api.GetGroupsAsync(b)).FirstOrDefault(g => g.Id == gid);
+        checks.Add(Out.Check("isDirect, A thấy peer = B, B thấy peer = A",
+            itemA is { IsDirect: true } && itemA.Peer?.UserId == b.UserId && itemB?.Peer?.UserId == a.UserId,
+            $"A thấy \"{itemA?.Peer?.DisplayName}\", B thấy \"{itemB?.Peer?.DisplayName}\""));
+        checks.Add(Out.Check("group_db: đúng 2 thành viên (chấp nhận 2 lần vẫn 1 nhóm)", Members(gid) == "2"));
+
+        Out.Info("\n(2) Chat riêng qua SignalR:");
+        await using var connA = await ChatClient.ConnectAsync(opt.Gateway, a);
+        await using var connB = await ChatClient.ConnectAsync(opt.Gateway, b);
+        await using var connC = await ChatClient.ConnectAsync(opt.Gateway, c);
+        checks.Add(await Out.ExpectOk("A JoinGroup chat riêng", () => connA.Hub.InvokeAsync("JoinGroup", gid)));
+        checks.Add(await Out.ExpectOk("B JoinGroup chat riêng", () => connB.Hub.InvokeAsync("JoinGroup", gid)));
+        var old = new List<MessageDto>
+        {
+            await connA.SendAsync(gid, "Chào B, mình kết bạn rồi nhé"),
+            await connA.SendAsync(gid, "Tin riêng thứ 2"),
+            await connB.SendAsync(gid, "Chào A!")
+        };
+        await Task.Delay(500);
+        checks.Add(Out.Check("A và B mỗi người nhận đủ 3 tin, seq 1..3",
+            connA.Received.Count(m => m.GroupId == gid) == 3 && connB.Received.Count(m => m.GroupId == gid) == 3
+            && old.Select(m => m.SequenceNumber).SequenceEqual(new long[] { 1, 2, 3 }),
+            string.Join(", ", old.Select(m => m.SequenceNumber))));
+        checks.Add(await Out.ExpectHubError("C (người ngoài) JoinGroup chat riêng bị từ chối", () => connC.Hub.InvokeAsync("JoinGroup", gid)));
+
+        Out.Info("\n(3) A và B cùng ở một nhóm thường:");
+        var normal = await api.CreateGroupAsync(a, "Nhóm thường của A và B");
+        await api.AddMemberAsync(a, normal, b.UserId);
+        await Task.Delay(3000); // chờ member-added tới chat-service (xóa cache) trước khi vào phòng – như chế độ down
+        checks.Add(await Out.ExpectOk("A JoinGroup nhóm thường", () => connA.Hub.InvokeAsync("JoinGroup", normal)));
+        checks.Add(await Out.ExpectOk("B JoinGroup nhóm thường", () => connB.Hub.InvokeAsync("JoinGroup", normal)));
+
+        Out.Info("\n(4) A hủy kết bạn:");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        checks.Add(Out.Check("A hủy kết bạn → 204", await api.UnfriendAsync(a, b.UserId) == 204));
+        msA = await WaitDirectAsync(api, a, gid, false);
+        msB = await WaitDirectAsync(api, b, gid, false);
+        checks.Add(Out.Check("Chat riêng biến mất ở cả A và B", msA >= 0 && msB >= 0, $"A sau {msA} ms, B sau {msB} ms"));
+        // chat-service kiểm quyền bằng cache Redis → chờ member-removed tới xóa cache rồi mới thử
+        // (thử sớm hơn thì cache cũ còn cho qua → tin được lưu thật – đúng "eventual consistency", nhưng làm lệch đếm ở bước 5).
+        sw = System.Diagnostics.Stopwatch.StartNew();
+        var cacheGone = await WaitUntil(() => Redis($"EXISTS group:members:{gid}") == "0");
+        Out.Info($"  cache group:members của chat riêng bị xóa sau {sw.ElapsedMilliseconds} ms (member-removed tới chat-service)");
+        checks.Add(cacheGone && await Out.ExpectHubError("B gửi tin vào chat riêng → bị từ chối", () => connB.SendAsync(gid, "còn đó không?")));
+        checks.Add(Out.Check("A đọc lịch sử chat riêng → 403", await api.GetStatusAsync(a, $"/api/chat/groups/{gid}/messages?limit=1") == 403));
+        var before = connB.Received.Count(m => m.GroupId == normal);
+        checks.Add(await Out.ExpectOk("A vẫn gửi được vào nhóm thường", () => connA.SendAsync(normal, "Nhóm thường vẫn chạy")));
+        await Task.Delay(500);
+        checks.Add(Out.Check("B vẫn nhận tin nhóm thường", connB.Received.Count(m => m.GroupId == normal) == before + 1));
+        checks.Add(Out.Check("Nhóm thường vẫn đủ 2 thành viên, chat riêng còn dòng (giữ lịch sử) nhưng 0 thành viên",
+            Members(normal) == "2" && Members(gid) == "0" && Psql("group_db", $"select count(*) from groups where id = '{gid}'") == "1"));
+
+        Out.Info("\n(5) Kết bạn lại (B mời, A chấp nhận):");
+        var gidAgain = await BefriendAsync(api, b, a);
+        checks.Add(Out.Check("Cùng mã nhóm như lần trước", gidAgain == gid));
+        msA = await WaitDirectAsync(api, a, gid, true);
+        msB = await WaitDirectAsync(api, b, gid, true);
+        checks.Add(Out.Check("Chat riêng hiện lại ở cả hai", msA >= 0 && msB >= 0, $"A sau {msA} ms, B sau {msB} ms"));
+        checks.Add(await Out.Eventually("A gửi được vào chat riêng", expectOk: true, () => connA.SendAsync(gid, "Mình lại là bạn")));
+        var history = await api.GetMessagesAsync(a, $"/api/chat/groups/{gid}/messages?limit=50");
+        checks.Add(Out.Check("Lịch sử có đủ 3 tin cũ + tin mới, seq tiếp tục",
+            old.All(o => history.Any(h => h.Id == o.Id)) && history.Count == 4 && history[^1].SequenceNumber == 4,
+            string.Join(", ", history.Select(h => $"{h.SequenceNumber}:{h.Content}"))));
+
+        Out.Info("\n(6) Sự kiện trùng – đẩy lại NGUYÊN VĂN sự kiện Accepted mới nhất 3 lần (cùng eventId, cùng revision):");
+        var pair = PairKey(a.UserId, b.UserId);
+        var latest = FriendshipEvents(pair, "Accepted")[^1];
+        var eventsBefore = MemberEvents(gid);
+        using (var kafka = new Kafka(opt.Kafka))
+            for (var i = 0; i < 3; i++) await kafka.SendRawAsync("identity.friendship-changed", pair, latest);
+        await Task.Delay(3000);
+        checks.Add(Out.Check("Vẫn 2 thành viên, không phát thêm member-added",
+            Members(gid) == "2" && MemberEvents(gid) == eventsBefore, $"dòng outbox member-* {eventsBefore} → {MemberEvents(gid)}"));
+
+        Out.Info($"\nXem: docker exec postgres psql -U chatapp -d group_db -c \"select topic, payload->>'userId', occurred_at from outbox_messages where key = '{gid}' order by occurred_at\"");
+        Out.Info("Log group-service: các dòng \"Chat riêng ...\" (thêm 2/2, gỡ 2/2, bỏ qua sự kiện cũ)");
+        return checks.All(x => x);
+    }
+
+    // Phần 11 – kịch bản lỗi: group-service tắt trong lúc người dùng chấp nhận → hủy → chấp nhận lại.
+    // identity vẫn trả lời bình thường (sự kiện nằm trong outbox → Kafka); group-service bật lại thì đọc bù từ offset đã commit,
+    // xử lý ĐÚNG thứ tự (cùng topic, cùng key) → kết quả cuối: chat riêng có 2 thành viên.
+    public static async Task<bool> FriendsDown(Api api, Options opt)
+    {
+        var users = await NewUsersAsync(api, "a", "b");
+        LoggedInUser a = users[0], b = users[1];
+        var checks = new List<bool> { Out.Check("A mời B → 201", await api.InviteFriendAsync(a, b.UserId) == 201) };
+
+        Out.Warn("\n>>> Hãy TẮT group-service (Ctrl+C ở cửa sổ của nó). Script tự phát hiện...");
+        await api.WaitGroupServiceAsync(a, up: false);
+        Out.Info("Đã phát hiện group-service tắt (Gateway trả 502).");
+
+        var (st, gidOrNull) = await api.AcceptFriendAsync(b, a.UserId);
+        checks.Add(Out.Check("B chấp nhận → 200 (identity không cần group-service)", st == 200));
+        checks.Add(Out.Check("A hủy kết bạn → 204", await api.UnfriendAsync(a, b.UserId) == 204));
+        checks.Add(Out.Check("B mời lại → 201", await api.InviteFriendAsync(b, a.UserId) == 201));
+        var (st3, _) = await api.AcceptFriendAsync(a, b.UserId);
+        checks.Add(Out.Check("A chấp nhận → 200", st3 == 200));
+        var gid = gidOrNull ?? Guid.Empty;
+
+        await Task.Delay(2000); // chờ OutboxPublisher của identity đẩy 3 sự kiện lên Kafka
+        var lagLine = Docker("exec kafka /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group group-service")
+            .Split('\n').FirstOrDefault(l => l.Contains("identity.friendship-changed")) ?? "";
+        var cols = lagLine.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var lag = cols.Length > 5 && int.TryParse(cols[5], out var l) ? l : -1;
+        checks.Add(Out.Check("Kafka giữ sự kiện chờ group-service: LAG ≥ 3", lag >= 3, $"LAG = {lag}"));
+        checks.Add(Out.Check("group_db chưa có chat riêng", Psql("group_db", $"select count(*) from groups where id = '{gid}'") == "0"));
+
+        Out.Warn("\n>>> Hãy BẬT LẠI group-service. Script tự phát hiện...");
+        await api.WaitGroupServiceAsync(a, up: true);
+        // Kill thay vì Ctrl+C thì Kafka chờ hết session timeout (~45 s) mới giao lại partition → chờ tối đa 60 s.
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var settled = await WaitUntil(() => Members(gid) == "2" && AppliedRevision(gid) == "5", timeoutMs: 60000);
+        checks.Add(Out.Check("Đọc bù xong: chat riêng còn 2 thành viên, đã áp revision 5", settled,
+            $"sau {sw.ElapsedMilliseconds} ms, thành viên {Members(gid)}, revision {AppliedRevision(gid)}"));
+        var topics = Psql("group_db", $"select string_agg(replace(topic, 'group.member-', ''), ',' order by occurred_at) from outbox_messages where key = '{gid}'");
+        checks.Add(Out.Check("Đúng thứ tự: added×2 → removed×2 → added×2", topics == "added,added,removed,removed,added,added", topics));
+        checks.Add(Out.Check("Chat riêng có ở cả A và B", await WaitDirectAsync(api, a, gid, true) >= 0 && await WaitDirectAsync(api, b, gid, true) >= 0));
+        await using var connA = await ChatClient.ConnectAsync(opt.Gateway, a);
+        checks.Add(await Out.Eventually("A gửi được tin vào chat riêng", expectOk: true, () => connA.SendAsync(gid, "group-service đã đọc bù xong")));
+        return checks.All(x => x);
+    }
+
+    // Phần 11 – Bước 4b: sự kiện CŨ bị giao lại SAU sự kiện mới (đẩy tay, gửi lại cả chuỗi).
+    // Không có revision thì: (1) Removed cũ gỡ nhầm 2 người đang là bạn; (2) gửi lại cả chuỗi → member-removed/added thừa
+    // → notification xóa rồi tạo lại bộ đếm → số chưa đọc về 0. Có revision: group-service bỏ mọi sự kiện revision ≤ đã áp.
+    public static async Task<bool> Stale(Api api, Options opt)
+    {
+        var users = await NewUsersAsync(api, "a", "b");
+        LoggedInUser a = users[0], b = users[1];
+        var pair = PairKey(a.UserId, b.UserId);
+
+        // revision: mời 1, chấp nhận 2 (phát), hủy 3 (phát), mời 4, chấp nhận 5 (phát).
+        var gid = await BefriendAsync(api, a, b);
+        await WaitDirectAsync(api, a, gid, true);
+        await api.UnfriendAsync(a, b.UserId);
+        await WaitDirectAsync(api, a, gid, false);
+        await BefriendAsync(api, b, a);
+        await WaitUntil(() => Members(gid) == "2" && AppliedRevision(gid) == "5");
+        var events = FriendshipEvents(pair);
+        var revisions = string.Join(", ", events.Select(e => System.Text.Json.JsonDocument.Parse(e).RootElement.GetProperty("revision").GetInt32()));
+        var checks = new List<bool>
+        {
+            Out.Check("Chuẩn bị: kết bạn → hủy → kết bạn lại, sự kiện mang revision 2, 3, 5; nhóm đã áp 5", revisions == "2, 3, 5" && AppliedRevision(gid) == "5",
+                $"revision các sự kiện: {revisions}")
+        };
+        using var kafka = new Kafka(opt.Kafka);
+
+        Out.Info("\n(1) Đẩy lại sự kiện Removed CŨ (revision 3) sau khi đã kết bạn lại:");
+        var eventsBefore = MemberEvents(gid);
+        await kafka.SendRawAsync("identity.friendship-changed", pair, FriendshipEvents(pair, "Removed")[0]);
+        await Task.Delay(3000);
+        checks.Add(Out.Check("Vẫn 2 thành viên, vẫn revision 5, không phát member-removed",
+            Members(gid) == "2" && AppliedRevision(gid) == "5" && MemberEvents(gid) == eventsBefore,
+            $"thành viên {Members(gid)}, dòng outbox member-* {eventsBefore} → {MemberEvents(gid)}"));
+        await using var connB = await ChatClient.ConnectAsync(opt.Gateway, b);
+        checks.Add(await Out.Eventually("B vẫn vào được chat riêng", expectOk: true, () => connB.Hub.InvokeAsync("JoinGroup", gid)));
+
+        Out.Info("\n(2) B gửi 3 tin (A có 3 tin chưa đọc), rồi đẩy lại CẢ CHUỖI sự kiện cũ (revision 2, 3, 5):");
+        for (var i = 1; i <= 3; i++) await connB.SendAsync(gid, $"Tin {i} cho A");
+        await WaitUntilAsync(async () => (await api.GetUnreadAsync(a, gid))?.UnreadCount == 3);
+        var unreadBefore = (await api.GetUnreadAsync(a, gid))?.UnreadCount;
+        checks.Add(Out.Check("A có 3 tin chưa đọc", unreadBefore == 3, $"unread = {unreadBefore}"));
+        eventsBefore = MemberEvents(gid);
+        foreach (var e in events) await kafka.SendRawAsync("identity.friendship-changed", pair, e);
+        await Task.Delay(4000);
+        var unreadAfter = (await api.GetUnreadAsync(a, gid))?.UnreadCount;
+        checks.Add(Out.Check("Số chưa đọc của A KHÔNG về 0", unreadAfter == 3, $"unread {unreadBefore} → {unreadAfter}"));
+        checks.Add(Out.Check("Không phát thêm member-removed / member-added, vẫn 2 thành viên",
+            MemberEvents(gid) == eventsBefore && Members(gid) == "2", $"dòng outbox member-* {eventsBefore} → {MemberEvents(gid)}"));
+
+        Out.Info("\nLog group-service: \"bỏ qua sự kiện cũ Removed revision 3 (đã áp revision 5)\" và 3 dòng bỏ qua cho cả chuỗi");
+        Out.Info($"Xem: docker exec postgres psql -U chatapp -d identity_db -c \"select event_type, payload->>'revision' from outbox_messages where key = '{pair}' order by occurred_at\"");
+        return checks.All(x => x);
+    }
+
     static async Task WaitUntilAsync(Func<Task<bool>> condition, int timeoutMs = 10000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
@@ -1145,6 +1434,29 @@ sealed class Api(string gateway)
         return new LoggedInUser(userName, me.Id, token);
     }
 
+    // Phần 11: đăng ký user mới (mỗi lần chạy một bộ user riêng → không đụng quan hệ bạn bè của duong/lan).
+    public async Task RegisterAsync(string userName, string displayName, string password) =>
+        (await _http.PostAsJsonAsync("/api/auth/register",
+            new { userName, email = $"{userName}@test.local", password, displayName })).EnsureSuccessStatusCode();
+
+    // Bạn bè (Phần 11): trả mã HTTP để script tự kiểm tra 201/200/204/409...
+    public async Task<int> InviteFriendAsync(LoggedInUser me, Guid otherId) =>
+        (int)(await SendRaw(HttpMethod.Post, "/api/friends/requests", me.Token, new { userId = otherId })).StatusCode;
+
+    // 200 → kèm directGroupId (identity tự tính, cùng công thức với group-service).
+    public async Task<(int Status, Guid? DirectGroupId)> AcceptFriendAsync(LoggedInUser me, Guid otherId)
+    {
+        var resp = await SendRaw(HttpMethod.Post, $"/api/friends/requests/{otherId}/accept", me.Token);
+        if (!resp.IsSuccessStatusCode) return ((int)resp.StatusCode, null);
+        return ((int)resp.StatusCode, (await resp.Content.ReadFromJsonAsync<FriendDto>())!.DirectGroupId);
+    }
+
+    public async Task<int> UnfriendAsync(LoggedInUser me, Guid otherId) =>
+        (int)(await SendRaw(HttpMethod.Delete, $"/api/friends/{otherId}", me.Token)).StatusCode;
+
+    public Task<List<GroupItem>> GetGroupsAsync(LoggedInUser user) =>
+        Send<List<GroupItem>>(HttpMethod.Get, "/api/groups", user.Token);
+
     public async Task<Guid> CreateGroupAsync(LoggedInUser owner, string name) =>
         (await Send<IdDto>(HttpMethod.Post, "/api/groups", owner.Token, new { name })).Id;
 
@@ -1218,7 +1530,12 @@ sealed class Api(string gateway)
     record LoginResponse(string AccessToken);
     record UserDto(Guid Id);
     record IdDto(Guid Id);
+    record FriendDto(Guid DirectGroupId);
 }
+
+// Một dòng GET /api/groups (chỉ các field script cần). Peer: người kia của chat riêng (Phần 11).
+record GroupItem(Guid Id, string Name, bool IsDirect, PeerItem? Peer);
+record PeerItem(Guid UserId, string? DisplayName);
 
 // Tự đẩy sự kiện thẳng lên Kafka (giả làm group-service / chat-service) để tạo tình huống khó gặp:
 // sự kiện đến sai thứ tự, sự kiện trùng. JSON tự viết theo đúng hợp đồng trong ChatApp.Contracts/Events
@@ -1244,6 +1561,11 @@ sealed class Kafka(string bootstrapServers) : IDisposable
             new { eventId, eventType = "MessageSent", occurredAt = DateTimeOffset.UtcNow, messageId = Guid.CreateVersion7(),
                   groupId, senderId, senderName, sequenceNumber, contentPreview = content });
 
+    // Phần 11: đẩy lại NGUYÊN VĂN một sự kiện đã phát (payload đọc từ outbox_messages của bên phát, cùng eventId,
+    // cùng revision) → giống hệt Kafka giao lại lần nữa (at-least-once) hoặc sự kiện cũ bị giao lại muộn.
+    public async Task SendRawAsync(string topic, string key, string json) =>
+        await _producer.ProduceAsync(topic, new Confluent.Kafka.Message<string, string> { Key = key, Value = json });
+
     // Key = groupId giống group-service / chat-service → cùng partition với các sự kiện thật của nhóm.
     async Task SendAsync(string topic, Guid key, object evt) =>
         await _producer.ProduceAsync(topic, new Confluent.Kafka.Message<string, string>
@@ -1256,7 +1578,7 @@ sealed class Kafka(string bootstrapServers) : IDisposable
 }
 
 sealed record Options(string Mode, string User, string Other, string Outsider, string Password, string Gateway, int Count, int Connections,
-    string InstanceA, string InstanceB, bool Negotiate, int Seconds, string Action, string Kafka)
+    string InstanceA, string InstanceB, bool Negotiate, int Seconds, string Action, string Kafka, string Group, int Interval)
 {
     public static Options Parse(string[] args)
     {
@@ -1269,9 +1591,10 @@ sealed record Options(string Mode, string User, string Other, string Outsider, s
         var mode = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : "basic";
         return new Options(mode, Get("user", "duong"), Get("other", "lan"), Get("outsider", "minh"),
             Get("password", "123456"), Get("gateway", "http://localhost:5000"),
-            int.Parse(Get("count", "200")), int.Parse(Get("connections", "20")),
+            int.Parse(Get("count", mode == "send" ? "5" : "200")), int.Parse(Get("connections", "20")),
             Get("a", "http://localhost:5003"), Get("b", "http://localhost:5013"), args.Contains("--negotiate"),
-            int.Parse(Get("seconds", "40")), Get("action", "stop"), Get("kafka", "localhost:9092"));
+            int.Parse(Get("seconds", "40")), Get("action", "stop"), Get("kafka", "localhost:9092"),
+            Get("group", ""), int.Parse(Get("interval", "1500")));
     }
 }
 

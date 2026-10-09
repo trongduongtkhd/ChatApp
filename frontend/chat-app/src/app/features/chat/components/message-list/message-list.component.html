@@ -1,0 +1,48 @@
+<div #thread class="ca-thread" (scroll)="onScroll()" role="log" aria-live="polite" aria-label="Tin nhắn">
+  <div *ngIf="loadingOlder" class="ca-loading"><span class="ca-spin"></span>Đang tải tin cũ…</div>
+  <div *ngIf="olderError" class="ca-loading">
+    Không tải được tin cũ ·&nbsp;<button class="ca-link" type="button" style="color: var(--brand)" (click)="retryOlder()">Thử lại</button>
+  </div>
+  <div *ngIf="reachedStart && messages.length" class="ca-day">Đầu cuộc trò chuyện</div>
+  <div *ngIf="reachedStart && !messages.length" class="ca-meta" style="margin: auto">Chưa có tin nhắn nào. Hãy gửi lời chào!</div>
+
+  <ng-container *ngFor="let row of rows; trackBy: trackRow" [ngSwitch]="row.kind">
+    <!-- Mốc ngày: viên thuốc ở giữa, kẻ ngang hai bên -->
+    <div *ngSwitchCase="'day'" class="ca-day-sep" role="separator" [attr.aria-label]="$any(row).label">
+      <span class="ca-day-pill">{{ $any(row).label }}</span>
+    </div>
+
+    <!-- Cụm tin người khác: tên ở tin đầu cụm, avatar nhỏ cạnh tin cuối cụm, giờ dưới bong bóng cuối -->
+    <ng-container *ngSwitchCase="'in'">
+      <div class="ca-sender">{{ $any(row).senderName }}</div>
+      <div class="ca-group">
+        <app-avatar [name]="$any(row).senderName" size="sm" [online]="onlineIds.has($any(row).messages[0].senderId)"></app-avatar>
+        <div class="col">
+          <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg in" [attr.title]="'#' + m.sequenceNumber">{{ m.content }}</div>
+        </div>
+      </div>
+      <div class="ca-time in">{{ $any(row).time }}</div>
+    </ng-container>
+
+    <!-- Cụm tin của mình: giờ dưới bong bóng cuối; tin cuối cùng của mình gộp "· Đã gửi ✓" -->
+    <div *ngSwitchCase="'out'" class="ca-out">
+      <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg out" [attr.title]="'#' + m.sequenceNumber">{{ m.content }}</div>
+      <div class="ca-time">
+        {{ $any(row).time }}<ng-container *ngIf="$any(row).messages[$any(row).messages.length - 1].id === deliveredId">
+          · <span class="ca-status">Đã gửi <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
+        </ng-container>
+      </div>
+    </div>
+  </ng-container>
+
+  <!-- Tin của mình chưa có sequenceNumber: luôn nằm CUỐI (mới nhất), theo thứ tự bấm Gửi. -->
+  <div *ngIf="pending.length" class="ca-out">
+    <ng-container *ngFor="let p of pending; trackBy: trackMsg">
+      <div class="ca-msg out" [class.sending]="p.status === 'sending'">{{ p.content }}</div>
+      <div *ngIf="p.status === 'sending'" class="ca-status">Đang gửi…</div>
+      <div *ngIf="p.status === 'failed'" class="ca-status failed">
+        Không gửi được · <button class="ca-link" type="button" (click)="resend.emit(p.id)">Gửi lại</button>
+      </div>
+    </ng-container>
+  </div>
+</div>

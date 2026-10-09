@@ -24,8 +24,11 @@ builder.Services.AddChatAppOutbox<GroupDbContext>(builder.Configuration);
 
 // Consumer Kafka chạy nền: identity.user-registered → user_snapshots.
 builder.Services.AddChatAppKafkaConsumer<UserRegisteredConsumer>(builder.Configuration);
+// identity.friendship-changed → nhóm chat riêng 2 người (Phần 11).
+builder.Services.AddChatAppKafkaConsumer<FriendshipChangedConsumer>(builder.Configuration);
 
 builder.Services.AddScoped<GroupManagementService>();
+builder.Services.AddScoped<DirectChatService>();
 
 // gRPC server cho chat-service hỏi thành viên nhóm (Phần 6).
 builder.Services.AddGrpc();

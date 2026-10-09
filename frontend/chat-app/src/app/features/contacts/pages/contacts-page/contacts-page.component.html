@@ -1,0 +1,123 @@
+<div class="ca-app">
+  <app-rail></app-rail>
+
+  <main class="ca-page">
+    <div class="ca-page-body">
+      <h1 class="ca-h1">Danh bạ</h1>
+
+      <!-- Kết quả thao tác gần nhất (thành công / lỗi từ server, vd 409 "Người này đã mời bạn") -->
+      <div *ngIf="notice" class="ca-alert ct-notice" [class.error]="notice.kind === 'error'" [class.ok]="notice.kind === 'ok'" role="status">
+        <span *ngIf="notice.waiting" class="ca-spin"></span>
+        <span>{{ notice.text }}</span>
+        <a *ngIf="notice.link" class="ca-btn primary mp-add" [routerLink]="['/chat', notice.link]">Nhắn tin</a>
+        <button class="ca-iconbtn ghost ct-close" type="button" aria-label="Đóng thông báo" (click)="notice = null">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+        </button>
+      </div>
+
+      <!-- Tìm người để kết bạn: dùng lại API tìm của group-service (bản sao user_snapshots) -->
+      <section class="ca-card" aria-labelledby="ct-add">
+        <h2 class="ca-h2" id="ct-add">Thêm bạn</h2>
+        <div class="ca-field">
+          <label for="ct-q" class="sr-only">Tìm người để kết bạn</label>
+          <input id="ct-q" type="search" placeholder="Tìm theo tên hoặc tên đăng nhập" autocomplete="off" [formControl]="query">
+        </div>
+        <div *ngIf="query.value.trim()" class="mp-results">
+          <div *ngIf="searching" class="ca-loading"><span class="ca-spin"></span>Đang tìm…</div>
+          <ng-container *ngIf="!searching">
+            <div *ngFor="let u of results; trackBy: trackByUser" class="ca-item mp-row ct-row">
+              <app-avatar [name]="u.displayName" size="sm"></app-avatar>
+              <span class="txt"><div class="name">{{ u.displayName }}</div><div class="prev">&#64;{{ u.userName }}</div></span>
+              <ng-container [ngSwitch]="relationOf(u)">
+                <span *ngSwitchCase="'friend'" class="ca-chip">Bạn bè</span>
+                <span *ngSwitchCase="'outgoing'" class="ca-meta">Đã gửi lời mời</span>
+                <button *ngSwitchCase="'incoming'" class="ca-btn primary mp-add" type="button"
+                        [disabled]="busyId === u.userId" (click)="accept(u)">Chấp nhận</button>
+                <button *ngSwitchDefault class="ca-btn primary mp-add" type="button"
+                        [disabled]="busyId === u.userId" (click)="invite(u)">
+                  <span *ngIf="busyId === u.userId" class="ca-spin"></span>Kết bạn
+                </button>
+              </ng-container>
+            </div>
+            <div *ngIf="!results.length" class="ca-meta" style="padding: 12px; text-align: center">Không tìm thấy người dùng nào.</div>
+          </ng-container>
+        </div>
+      </section>
+
+      <section class="ca-card">
+        <div class="ca-tabs ct-tabs" role="tablist" aria-label="Danh bạ">
+          <button *ngFor="let t of tabs; let i = index" type="button" role="tab" class="ca-tab"
+                  [id]="'ct-tab-' + t.id" aria-controls="ct-panel"
+                  [class.active]="tab === t.id" [attr.aria-selected]="tab === t.id" [attr.tabindex]="tab === t.id ? 0 : -1"
+                  (click)="selectTab(t.id)" (keydown)="onTabKey($event, i)">
+            <!-- Chỉ tab Lời mời có số (huy hiệu đỏ = việc cần làm), giống tab Chưa đọc của danh sách chat -->
+            {{ t.label }}<span *ngIf="t.id === 'incoming' && incoming.length" class="count">{{ incoming.length }}</span>
+          </button>
+        </div>
+
+        <div id="ct-panel" role="tabpanel" [attr.aria-labelledby]="'ct-tab-' + tab" class="ct-list">
+          <div *ngIf="loading" class="ca-loading"><span class="ca-spin"></span>Đang tải…</div>
+          <div *ngIf="loadError" class="ca-alert error" role="alert">
+            <span style="flex: 1">Không tải được danh bạ.</span>
+            <button class="ca-btn secondary mp-add" type="button" (click)="reload()">Thử lại</button>
+          </div>
+
+          <ng-container *ngIf="!loading" [ngSwitch]="tab">
+            <!-- Bạn bè -->
+            <ng-container *ngSwitchCase="'friends'">
+              <div *ngFor="let f of friends; trackBy: trackByUser" class="ca-item mp-row ct-row">
+                <app-avatar [name]="f.displayName" size="md"></app-avatar>
+                <span class="txt"><div class="name">{{ f.displayName }}</div><div class="prev">&#64;{{ f.userName }}</div></span>
+                <a class="ca-btn secondary mp-add" [routerLink]="['/chat', f.directGroupId]">Nhắn tin</a>
+                <button class="ca-iconbtn ghost mp-remove" type="button" [disabled]="busyId === f.userId"
+                        [attr.aria-label]="'Hủy kết bạn với ' + f.displayName" title="Hủy kết bạn" (click)="askRemove(f)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M22 11h-6"></path></svg>
+                </button>
+              </div>
+              <div *ngIf="!friends.length" class="ca-list-empty">
+                <div class="title">Chưa có bạn bè</div>
+                Tìm người ở ô phía trên rồi bấm Kết bạn.
+              </div>
+            </ng-container>
+
+            <!-- Lời mời đến -->
+            <ng-container *ngSwitchCase="'incoming'">
+              <div *ngFor="let r of incoming; trackBy: trackByUser" class="ca-item mp-row ct-row">
+                <app-avatar [name]="r.displayName" size="md"></app-avatar>
+                <span class="txt"><div class="name">{{ r.displayName }}</div><div class="prev">&#64;{{ r.userName }} · mời bạn {{ r.sentAt | listTime }}</div></span>
+                <button class="ca-btn primary mp-add" type="button" [disabled]="busyId === r.userId" (click)="accept(r)">
+                  <span *ngIf="busyId === r.userId" class="ca-spin"></span>Chấp nhận
+                </button>
+                <button class="ca-btn secondary mp-add" type="button" [disabled]="busyId === r.userId" (click)="decline(r)">Từ chối</button>
+              </div>
+              <div *ngIf="!incoming.length" class="ca-list-empty">
+                <div class="title">Không có lời mời nào</div>
+                Lời mời kết bạn người khác gửi cho bạn sẽ hiện ở đây.
+              </div>
+            </ng-container>
+
+            <!-- Đã gửi -->
+            <ng-container *ngSwitchCase="'outgoing'">
+              <div *ngFor="let r of outgoing; trackBy: trackByUser" class="ca-item mp-row ct-row">
+                <app-avatar [name]="r.displayName" size="md"></app-avatar>
+                <span class="txt"><div class="name">{{ r.displayName }}</div><div class="prev">&#64;{{ r.userName }} · đã gửi {{ r.sentAt | listTime }}</div></span>
+                <button class="ca-btn secondary mp-add" type="button" [disabled]="busyId === r.userId" (click)="cancel(r)">
+                  <span *ngIf="busyId === r.userId" class="ca-spin"></span>Hủy lời mời
+                </button>
+              </div>
+              <div *ngIf="!outgoing.length" class="ca-list-empty">
+                <div class="title">Chưa gửi lời mời nào</div>
+                Lời mời đang chờ người kia trả lời sẽ hiện ở đây.
+              </div>
+            </ng-container>
+          </ng-container>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<app-confirm-dialog *ngIf="confirmRemove" title="Hủy kết bạn?"
+                    [message]="'Bạn và ' + confirmRemove.displayName + ' sẽ không nhắn tin riêng được nữa. Lịch sử trò chuyện được giữ lại và hiện lại nếu hai bạn kết bạn lần nữa.'"
+                    confirmText="Hủy kết bạn" [busy]="removing" [error]="removeError"
+                    (confirm)="doRemove()" (cancelled)="confirmRemove = null"></app-confirm-dialog>

@@ -1,0 +1,58 @@
+// Bố cục chia đôi dùng chung cho Login và Register (Login.dc.html, Register.dc.html):
+// nửa trái nền --brand giới thiệu, nửa phải là form. Màn hẹp thì 2 nửa xếp chồng (flex-wrap).
+.auth {
+  display: flex;
+  flex-wrap: wrap;
+  min-height: 100vh;
+}
+
+.auth-brand {
+  flex: 1 1 420px;
+  background: var(--brand);
+  color: #FFFFFF;
+  padding: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  overflow: hidden;
+
+  .logo { font-size: 24px; line-height: 30px; font-weight: 700; }
+
+  h2 {
+    margin: 0;
+    font-size: 40px;
+    line-height: 46px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+
+  p { margin: 0; font-size: 16px; line-height: 24px; opacity: .92; }
+}
+
+.auth-form-wrap {
+  flex: 1 1 420px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  background: var(--surface);
+}
+
+.auth-form {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+
+  .sub { color: var(--ink-muted); }
+  .switch { text-align: center; color: var(--ink-muted); }
+  .switch a { font-weight: 600; }
+  .full { width: 100%; }
+}
+
+@media (max-width: 600px) {
+  .auth-brand { padding: 32px 24px; }
+  .auth-brand h2 { font-size: 30px; line-height: 36px; }
+}

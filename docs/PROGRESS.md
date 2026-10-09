@@ -13,8 +13,8 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 7 | chat-service | ✅ Xong |
 | 8 | Scale + Backplane | ✅ Xong |
 | 9 | notification-service | ✅ Xong |
-| 10 | Angular | ⬜ |
-| 11 | Bạn bè + nhắn tin riêng | ⬜ |
+| 10 | Angular | ✅ Xong |
+| 11 | Bạn bè + nhắn tin riêng | ✅ Xong |
 | 12 | Chịu lỗi | ⬜ |
 | 13 | Sao lưu | ⬜ |
 
@@ -339,6 +339,129 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Hub `/hubs/notifications` cũng dùng `skipNegotiation` + WebSocket như chat (Angular dùng chung cách kết nối).
   - Khi viết Dockerfile: `ConnectionStrings__NotificationDb` (host `postgres`), `Kafka__BootstrapServers=kafka:29092`, `Jwt__Secret`.
 
+### Phần 10 – Angular 12: đăng nhập, danh sách nhóm, khung chat, chưa đọc
+- **Đã làm (10 bước):** (1) khung dự án + giao diện nền theo `docs/ui` (biến CSS, theme tối theo hệ điều hành); (2) đăng nhập/đăng ký, JWT, interceptor, guard; (3) thanh bên: danh sách nhóm + tin cuối, tìm nhóm, tạo nhóm; (4) lịch sử REST phân trang, màn 403/503; (5) SignalR nhận tin + presence; (6) gửi tin Đang gửi/Đã gửi/Gửi lại, GUID v7; (7) dải trạng thái kết nối + phục hồi sau reconnect (+ bổ sung: token hết hạn/401 khi (re)connect → đăng xuất); (8) số chưa đọc qua notification hub; (9) panel thành viên + sửa nhóm xử lý 409; (10) rà giao diện, tài liệu. Angular 12.2, TypeScript 4.3, RxJS 6.6, `@microsoft/signalr` 6.0.25, Node 14. Không thêm thư viện UI. `ng build --configuration production`: 302 kB ban đầu, không cảnh báo.
+- **File chính** (`frontend/chat-app/src/app/`):
+  - `core/services/auth.service.ts` (giải mã claim JWT bằng `TextDecoder`, tự đăng xuất lúc `expiresAt`), `token-storage.service.ts`; `core/interceptors/jwt.interceptor.ts`, `error.interceptor.ts` (lấy `AuthService` qua `Injector` tránh vòng phụ thuộc NG0200); `core/guards/auth.guard.ts` (CanLoad + CanActivate), `guest.guard.ts`.
+  - `core/services/chat-hub.service.ts`: MỘT kết nối, `joinGroup` tự gọi lại sau reconnect, `sendMessage` (hàng đợi khi đang nối lại, timeout 10 s, tách `HubException`), `banner$`, `reconnected$`, `retryNow`, `probeSession` (hỏi `/api/users/me` khi WebSocket hỏng).
+  - `core/services/notification-hub.service.ts`, `notification-api.service.ts`, `group-api.service.ts` (`changed$`), `message-api.service.ts`; `core/utils/guid.ts` (`uuidv7`), `hub-connection.ts`.
+  - `features/chat/components/chat-window` (mở nhóm = JoinGroup trước rồi REST; `mergeBySeq`; `catchUp` bằng `expand`; tin chờ theo nhóm; `markRead` gom lô `auditTime(500)`), `message-list` (gom cụm, dải ngày, giữ vị trí cuộn), `message-input`, `group-list`, `member-panel`, `create-group-dialog`, `edit-group-dialog`; `pages/chat-layout` (tin cuối + số chưa đọc của mọi nhóm).
+  - `shared/components/avatar`, `unread-badge`, `connection-banner`, `confirm-dialog`; `shared/pipes/relative-time.pipe.ts` (Bước 9b thay bằng `list-time.pipe.ts`).
+  - `proxy.conf.js` (bắt lỗi socket WebSocket để `ng serve` không sập), `src/styles.scss` (từ `docs/ui/app.css`).
+  - `scripts/chat-test.cs`: chế độ mới `send --group <id> --user lan --count 5 --interval 1500` (gửi vào nhóm CÓ SẴN để xem trên trình duyệt).
+- **Khái niệm → chương:**
+  - SPA, NgModule, lazy loading (`CanLoad` chặn tải code), singleton trong `core/` (mỗi hub MỘT kết nối mỗi tab) → **Chương 2, 3**.
+  - Proxy lúc phát triển: cùng origin → không CORS; WebSocket đi qua 3 lớp proxy (dev server → YARP → Nginx), mỗi lớp phải chuyển `Upgrade` → **Chương 2, 4**.
+  - JWT phía client: đọc được payload nhưng không sửa được; lưu localStorage (đánh đổi XSS); interceptor gắn token; guard chỉ là tiện ích giao diện, bảo vệ thật ở server; đồng hồ client không đáng tin → 401 của server là quyết định cuối → **Chương 5**.
+  - Ghép dữ liệu nhiều service ở client (group-service + chat-service), N+1 (79 nhóm → 79 lời gọi `limit=1` song song, 794 ms), `catchError` riêng từng lời gọi = cô lập lỗi → **Chương 2, 4, 8**.
+  - RxJS chống kết quả cũ đè kết quả mới (`switchMap`), gom request (`debounceTime`, `auditTime`), bắt lỗi BÊN TRONG `switchMap` → **Chương 4, 6**.
+  - Thứ tự: sắp theo `sequenceNumber`, không theo `createdAt`/thứ tự đến; không giả định seq liên tục; gộp theo `id` (REST + SignalR có thể trùng) → **Chương 6**.
+  - "Đăng ký nghe trước, chụp ảnh sau, rồi gộp": `JoinGroup` TRƯỚC khi lấy lịch sử → không lọt tin trong khe hở → **Chương 4, 6**.
+  - Định danh do client sinh (GUID v7) + idempotency: gửi lại cùng `messageId` bao nhiêu lần cũng chỉ 1 tin; "không có trả lời" ≠ "server chưa làm" (hết 10 s rồi tin vẫn tự thành tin thật) → **Chương 5, 6**.
+  - Optimistic UI (bong bóng mờ trước khi server xác nhận) → **Chương 6**.
+  - Tự kết nối lại có giới hạn + giãn cách (0/2/10/30 s) rồi trả quyền cho người dùng ("Thử lại"); ConnectionId mới → JoinGroup lại; SignalR/Redis Pub/Sub không gửi bù → lấy bù bằng REST (đẩy để nhanh, kéo để đúng) → **Chương 4, 5, 8**.
+  - Lỗi tạm thời (server chết → thử lại) vs vĩnh viễn (hết phiên, `HubException` → dừng); WebSocket giấu mã HTTP → phát hiện gián tiếp bằng REST → **Chương 8**.
+  - Eventual consistency hiện ra trên giao diện: huy hiệu chưa đọc đi qua outbox → Kafka → notification-service (~300 ms); thành viên mới ~1 s; "Đang đồng bộ…" khi bản sao chưa có tên → **Chương 2**.
+  - Optimistic Locking từ phía người dùng: 409 → hiện bản mới của người kia, không tự ghi đè; "Tải lại bản mới" rồi mới lưu được → **Chương 6**.
+  - Phân quyền: giao diện chỉ ẩn nút, server mới chặn (403) → **Chương 5**.
+- **Cách demo** (Docker + identity, group, notification, Gateway bằng `dotnet run` + `cd frontend/chat-app; npm start`, mở http://localhost:4200; cửa sổ thường `duong`, ẩn danh `lan`):
+  1. Đăng nhập sai → hộp đỏ; đăng ký tên trùng → lỗi dưới ô; F5 vẫn đăng nhập; sửa token trong DevTools rồi gọi API → về trang đăng nhập.
+  2. Chat 2 trình duyệt: tin hiện ngay, "Đang gửi…" → "Đã gửi ✓", chấm xanh khi người kia mở nhóm. `dotnet run scripts/chat-test.cs -- send --group <id> --user lan --count 30 --interval 0` → tin vẫn đúng thứ tự seq.
+  3. **Demo chính của PLAN:** `docker compose stop chat-service-1` (bản đang giữ kết nối, xem `docker compose logs nginx --tail 30`) → dải vàng → nối sang bản kia → dải xanh "Đã kết nối lại". `docker pause` bản đang giữ kết nối + lan gửi tin → ~30 s sau tin lỡ tự hiện (Console: "lấy bù qua REST … thêm mới N").
+  4. Tắt cả 2 bản chat-service: gửi tin → "Đang gửi…", bật lại trong 30 s → tự gửi; quá ~45 s → "Mất kết nối… Thử lại", tin đỏ "Gửi lại" → DB vẫn 1 dòng.
+  5. Huy hiệu: lan gửi vào nhóm duong không mở → huy hiệu tăng + nhóm lên đầu; mở nhóm → mất; 105 tin → "99+"; tắt notification-service → chat vẫn chạy, bật lại → huy hiệu về đúng.
+  6. 2 tab cùng sửa nhóm → tab sau thấy hộp 409 "Tên hiện tại: …".
+- **Kết quả đã kiểm tra** (Edge headless điều khiển qua DevTools Protocol, chạy trên backend thật; script ở scratchpad, không đưa vào dự án):
+  - Token/401 (bổ sung Bước 7): 17/17 – `expiresAt` đã qua khi reconnect → về đăng nhập sau 1,4 s, 0 WebSocket mới; token bị sửa → `/api/users/me` 401 → đăng xuất 0,8 s; token còn hạn + 2 bản chat chết → KHÔNG đăng xuất, "Mất kết nối… Thử lại" ở giây ~53, Thử lại → 101.
+  - Bước 8: 18/18 – huy hiệu 3 + tin cuối + lên đầu danh sách; nhóm đang mở 5 tin → 2 `POST /read` (gom lô), unread server = 0; mở nhóm gửi đúng seq lớn nhất; "99+" (server 105); nhóm mới tự hiện; notification chết → chat vẫn gửi, bật lại → đúng số sau ~35 s.
+  - Bước 9: 28/28 – thêm/xóa thành viên qua panel; lan vừa được thêm gửi được, bị xóa → `HubException: Bạn không phải thành viên nhóm này`; 409: server không bị ghi đè, chữ đang gõ còn nguyên, tải bản mới → lưu được, thanh bên đổi tên; xóa nhóm / rời nhóm → về `/chat`, nhóm biến khỏi thanh bên.
+  - API qua proxy 4200: 79 nhóm, 79 lời gọi `limit=1` song song 794 ms; `history`, `presence`, `send` qua cổng 4200 ĐÚNG; GUID v7 đúng định dạng, thời gian trong id lệch 1 ms.
+  - Giao diện: chụp 7 màn hình × theme sáng/tối + màn hình hẹp 390 px (trang đăng nhập xếp dọc) đối chiếu `docs/ui/screens`.
+- **Lưu ý cho báo cáo:**
+  - **`ng serve` sập khi chat-service tắt** (tái hiện được): http-proxy 1.18.1 của webpack-dev-server 3.11 không bắt lỗi socket khi Gateway trả mã khác 101 → sửa bằng `proxy.conf.js` + `onProxyReqWs`. Chỉ ảnh hưởng lúc phát triển.
+  - **Lỗi chập chờn chưa tái hiện lại:** 1 lần (trong 3 lần chạy kịch bản tắt 2 bản chat-service) kết nối kẹt ở reconnecting > 100 s, nút Thử lại vô tác dụng (đoán: một lượt bắt tay WebSocket treo lúc container khởi động lại; WebSocket trình duyệt không có timeout bắt tay). F5 thoát được. Hướng xử lý: đồng hồ canh bắt tay (Phần 12).
+  - **Người bị xóa khỏi nhóm không được báo ngay**: chỉ biết khi gửi tin bị từ chối hoặc F5; trong lúc đó vẫn NHẬN tin của phòng (phòng SignalR chỉ kiểm quyền lúc `JoinGroup`, Phần 7). Hướng sửa: notification hub đẩy "bạn bị xóa khỏi nhóm" (ngoài DESIGN).
+  - N+1 khi lấy tin cuối: nhiều nhóm → nhiều request (trình duyệt chỉ mở 6 kết nối/host với HTTP/1.1). Hướng sửa: API gộp, hoặc group-service giữ bản sao tin cuối từ `chat.message-sent`.
+  - Token ở localStorage: JavaScript đọc được (XSS). Thay thế: cookie `HttpOnly` + chống CSRF (phải sửa backend). Token trong query `?access_token=` có thể lộ vào log proxy – Nginx đã ghi `$uri` không kèm query (Phần 8).
+  - Tin chờ gửi giữ trong bộ nhớ của tab: F5 lúc đang "Đang gửi…" là mất bong bóng (tin có thể đã lưu ở server – F5 sẽ thấy nếu đã lưu).
+  - Đánh dấu đã đọc cả khi tab đang ẩn (chưa kiểm `document.visibilityState`).
+  - Khung chat chưa tối ưu cho điện thoại (thiết kế chỉ có bản desktop); trang đăng nhập/đăng ký có bản hẹp.
+  - Notification hub chạy 1 bản (`Clients.User` chỉ tới kết nối trên bản đó, Phần 9).
+
+#### Bước 9b – Làm lại giao diện bên trong (chỉ frontend, sau Bước 10)
+- **Đã làm (3 bước con):** (9b.1) rail điều hướng tối 72px + trang `/settings` (lazy) + theme Sáng/Tối/Hệ thống lưu localStorage; (9b.2) danh sách chat: tiêu đề "Tin nhắn", tab Tất cả / Chưa đọc / Nhóm, giờ ở góc phải; (9b.3) khung chat: mốc ngày dạng viên thuốc, giờ dưới bong bóng cuối cụm gộp "Đã gửi ✓", panel thành viên gọn. Trang đăng nhập/đăng ký, màu `#0866FF`, font, mọi hành vi gắn backend giữ nguyên. Backend không đổi. `ng build --configuration production`: 308 kB, không cảnh báo.
+- **File chính:** `core/services/theme.service.ts`; `shared/components/app-rail/`; `shared/pipes/list-time.pipe.ts` (thay `relative-time`, đã xóa); `features/settings/` (module, routing, `pages/settings-page`); `features/chat/components/group-list` (tab + lọc), `message-list` (`buildRows`: mốc ngày khi sang ngày, tách cụm khi đổi người / sang ngày / cách ≥ 15 phút, `time` của cụm), `member-panel` (lớp `.mp-*`); `pages/chat-layout`; `src/styles.scss` (token `--rail-*`, `.ca-tabs`, `.ca-day-sep`, `.ca-time`, `.ca-card`, `.ca-option`).
+- **Khái niệm → chương:**
+  - Lazy module thứ 3 + guard `canLoad` (chưa đăng nhập không tải code `/settings`); component dùng chung giữa 2 route; hub singleton nên chuyển `/chat` ↔ `/settings` KHÔNG ngắt SignalR → **Chương 2, 3**.
+  - Trạng thái giao diện riêng của trình duyệt (theme) để ở localStorage, khác dữ liệu nghiệp vụ (nguồn sự thật ở server); bộ nhớ trình duyệt có thể bị chặn → try/catch, vẫn chạy trong phiên → **Chương 7, 8** (mức nhỏ).
+  - Lọc phía client trên dữ liệu đã ghép từ 3 service: đổi tab không gọi API; số trên tab, huy hiệu, tab Chưa đọc cùng tính từ một mảng nên không lệch nhau khi `UnreadCountChanged` đến → **Chương 2, 4**.
+  - Eventual consistency trên giao diện: mở nhóm ở tab Chưa đọc → `POST /read` gom lô 500 ms → server mới về 0; giữ dòng vừa mở tới khi đổi tab để không "biến mất dưới tay" → **Chương 2**.
+  - Thời gian hiển thị (`createdAt`, đồng hồ server) chỉ dùng cho mốc ngày / giờ; THỨ TỰ vẫn theo `sequenceNumber` → **Chương 6**.
+- **Cách demo:** rail → Cài đặt → chọn Tối, F5 vẫn tối; chọn Hệ thống rồi đổi Windows Light/Dark → app đổi ngay. `dotnet run scripts/chat-test.cs -- send --group <id nhóm không mở> --user lan --count 3` → nhóm lên đầu, giờ xanh, huy hiệu 3, số trên tab Chưa đọc tăng. Mở nhóm có tin nhiều ngày → mỗi ngày một viên thuốc; gửi tin → "Đang gửi…" → "HH:mm · Đã gửi ✓".
+- **Kết quả đã kiểm tra** (Edge headless + DevTools Protocol, backend thật): 9b.1 15/15 (guard, rail 72px + `aria-current`, theme 3 lựa chọn + F5 + bàn phím, đăng xuất); 9b.2 17/17 (giờ đúng dạng ở 58 dòng, huy hiệu + tab Chưa đọc khớp 26/26, giữ dòng vừa mở, tìm kiếm cùng tab, phím ← →); 9b.3 15/15 (mốc ngày không lặp, mỗi cụm đúng 1 dòng giờ, "Đã gửi" chỉ 1 lần, đầu panel cao bằng đầu khung 64/64, dòng thành viên 52 px). Hồi quy: Bước 8 14/14 (bỏ KB6 tắt notification-service), Bước 9 28/28. Chụp sáng/tối từng màn.
+- **Lưu ý cho báo cáo:**
+  - Tab "Nhóm" chưa có ý nghĩa riêng: backend không phân biệt nhóm với chat 1-1 (không có `isDirect`) – cần sửa backend nếu muốn, ngoài PLAN. *(Đã giải quyết ở Phần 11: `isDirect`, tab Nhóm = `!isDirect`.)*
+  - Mốc ngày và "Hôm nay/Hôm qua" tính theo đồng hồ máy người dùng: máy sai giờ thì nhãn sai (thứ tự tin vẫn đúng vì theo seq).
+  - Khung chat vẫn chỉ tối ưu cho màn rộng (rail + danh sách + khung chat + panel).
+
+### Phần 11 – Bạn bè và nhắn tin riêng
+- **Đã làm (9 bước):** (1) Contracts `DirectChat` (UUID v5) + `FriendshipChanged` + bảng `friendships`; (2) 8 API `/api/friends` + route Gateway; (3) outbox `identity.friendship-changed` + `kafka-init`; (4) group-service: `is_direct`, consumer tạo/gỡ thành viên chat riêng idempotent, chặn 400 cho nhóm riêng, `GroupDto.isDirect/peer`; (4b) số phiên bản `revision` chống sự kiện cũ đến muộn; (5) `chat-test.cs` chế độ `friends`, `friendsdown`, `stale`; (6) trang Danh bạ `/contacts`; (7) chat riêng trên giao diện; (8) tài liệu. chat-service và notification-service **không sửa dòng nào**.
+- **File chính:**
+  - `Contracts/DirectChat.cs`: `Order` (so chuỗi GUID ordinal = thứ tự byte uuid của PostgreSQL), `PairKey`, `GroupIdFor` (UUID v5 của `"direct:{low}:{high}"`), `CreateV5`. `Contracts/Events/FriendshipChanged.cs` (`Change`, `Revision`; `EventType => Change`), `KafkaTopics.FriendshipChanged`.
+  - identity: `Entities/Friendship.cs` (PK `(user_low_id, user_high_id)`, `Revision`, `[Timestamp]` xmin), `Data/IdentityDbContext.cs` (2 CHECK, 3 FK sang `users`, index `user_high_id`), migration `AddFriendships`, `AddFriendshipRevision`; `Services/FriendshipService.cs` (máy trạng thái, `ChangeStatus` = mọi lần đổi trạng thái +1 revision, bắt 23505 / `DbUpdateConcurrencyException`, `AddFriendshipChangedEvent`); `Controllers/FriendsController.cs`; `Services/ServiceResult.cs` (chép mẫu của group).
+  - group: `Entities/Group.cs` (`IsDirect`, `FriendshipRevision`), migration `AddIsDirect`, `AddFriendshipRevision`; `Services/DirectChatService.cs` (kiểm phiên bản bằng một câu `UPDATE … WHERE friendship_revision < @rev`, `INSERT … ON CONFLICT DO NOTHING RETURNING`, `DELETE … RETURNING`, chỉ phát member-* cho dòng thật sự đổi); `Messaging/FriendshipChangedConsumer.cs`; `Services/GroupManagementService.cs` (`if (group.IsDirect) → 400` TRƯỚC mọi kiểm tra `OwnerId`, `peer` lấy bằng một câu truy vấn).
+  - `Gateway/appsettings.json` route `friends`; `docker-compose.yml` `kafka-init` thêm topic.
+  - Frontend: `core/models/friend.ts`, `core/models/group.ts` (`isDirect`, `peer`, `groupTitle()`), `core/services/friend-api.service.ts`, `core/services/group-api.service.ts` (`waitForGroup`, `isKnownDirect`, `notifyChanged`), `features/contacts/` (trang Danh bạ), `shared/components/app-rail` (mục Danh bạ), `group-list` (tab Nhóm = `!isDirect`), `chat-window` (đầu khung chat riêng, màn "Hai bạn không còn là bạn bè").
+  - `scripts/chat-test.cs`: `friends`, `friendsdown`, `stale` (+ `Api.RegisterAsync`, `Kafka.SendRawAsync`).
+- **Khái niệm → chương:**
+  - Quan hệ 2 chiều lưu MỘT dòng theo cặp đã sắp `low < high`; PK + CHECK là chốt chặn cuối khi 2 người mời chéo nhau cùng lúc (đo: 14/15 cặp thật sự chạm PK `23505`, cả 15 cặp ra đúng 1 cái 201 + 1 cái 409) → **Chương 6**.
+  - Máy trạng thái lời mời (`Pending → Accepted/Declined/Cancelled`, `Accepted → Removed`, mời lại); Optimistic Locking xmin cho "chấp nhận đúng lúc hủy" (10 vòng: không vòng nào cả 2 cùng thắng) → **Chương 6**.
+  - Định danh theo cặp (URL dùng userId người kia, không có friendshipId); **ID tất định** UUID v5: identity và group tự tính ra cùng mã nhóm mà không gọi nhau; khác GUID v7 (ngẫu nhiên + thời gian) → **Chương 5**.
+  - Idempotency ở mức API (chấp nhận 2 lần → 200, không phát thêm sự kiện) và ở phía phát (thua xmin → transaction hủy → không có dòng outbox thừa) → **Chương 6**.
+  - Transactional Outbox: kết bạn vẫn 200 khi Kafka / group-service chết → **Chương 2, 6**.
+  - Thứ tự sự kiện: Accepted và Removed chung MỘT topic, key = cặp → cùng partition → đúng thứ tự (2 topic thì như lỗi Phần 9 bản 2a) → **Chương 4, 6**.
+  - Ba cách chống trùng / sai thứ tự và vì sao không dùng giờ hệ thống – xem bảng bên dưới → **Chương 6**.
+  - Eventual consistency nhìn thấy được: chấp nhận → chat riêng sau ~0,2–0,9 s; giao diện chờ ("Đang tạo cuộc trò chuyện riêng…") rồi mới cho Nhắn tin → **Chương 2**.
+  - Tách rời theo thời gian: group-service tắt → identity vẫn chạy, Kafka giữ sự kiện (LAG 3), bật lại đọc bù đúng thứ tự → **Chương 2, 4, 8**.
+  - Phân quyền theo dữ liệu, không theo cột tiện lợi: `OwnerId` của nhóm riêng chỉ để lấp cột, chặn 400 đặt trước kiểm tra Owner; giao diện chỉ ẩn nút, server mới chặn → **Chương 5**.
+  - Phát hiện bị gỡ quyền gián tiếp khi không có tin đẩy: gửi tin bị từ chối → hỏi lại REST → 403 → đổi màn → **Chương 4, 8**.
+- **So sánh 3 cách chống trùng / sai thứ tự đã dùng (Chương 6):**
+
+  | | `processed_events` (Phần 9) | Mã tất định + `ON CONFLICT` (Bước 4) | Số phiên bản (Bước 4b) |
+  |---|---|---|---|
+  | Chống | cùng MỘT sự kiện đến 2 lần | tạo trùng nhóm / thành viên | sự kiện CŨ đến sau sự kiện mới (đẩy lại, gửi lại cả chuỗi) |
+  | Cách làm | sổ `event_id` (PK), ghi cùng transaction với `+1` | `GroupIdFor(a,b)` luôn ra cùng mã; PK chặn INSERT lần 2; `RETURNING` biết dòng nào thật sự chèn/xóa | `friendships.revision` +1 mỗi lần đổi trạng thái; nhóm nhớ `friendship_revision`; một câu `UPDATE … WHERE friendship_revision < @rev` |
+  | Cần thêm lưu trữ | 1 bảng, lớn dần (cần job dọn) | không | 1 cột mỗi bên |
+  | Không chống được | sự kiện KHÁC nhưng cũ (eventId khác) | `Removed` cũ đến sau `Accepted` mới → gỡ nhầm | – (với điều kiện bên phát cấp số đúng) |
+  | Hợp với | thao tác không tự idempotent (`+1`) | "tạo nếu chưa có" | trạng thái bị ghi đè nhiều lần (bật / tắt) |
+
+- **Vì sao không dùng giờ hệ thống (`occurredAt`):** đồng hồ các máy lệch nhau (Phần 2 `ClockSkew` 30 s); chạy 2 bản identity thì lần đổi SAU có thể mang giờ SỚM hơn → bị coi là cũ và bỏ mất. Tombstone Phần 9 chỉ đúng vì group-service chạy 1 bản. `revision` là **đồng hồ logic** của riêng một cặp: do chính dòng dữ liệu cấp, tăng trong cùng `SaveChangesAsync` có xmin nên 2 lần đổi tranh nhau không bao giờ cùng số – đúng thứ tự "xảy ra trước" mà không cần đồng bộ đồng hồ. (Không dùng `xmin` làm phiên bản: đó là mã giao dịch nội bộ của PostgreSQL, có thể quay vòng, không phải dữ liệu nghiệp vụ.)
+- **Cách demo** (Docker + identity, group, notification, Gateway bằng `dotnet run`; `npm start`):
+  1. Hai trình duyệt (A thường, B ẩn danh): A → Danh bạ → tìm B → Kết bạn; B → Danh bạ → Lời mời (số đỏ 1) → Chấp nhận → "Đang tạo cuộc trò chuyện riêng…" → "đã sẵn sàng" → Nhắn tin. Chat qua lại; tab Nhóm không có chat riêng.
+  2. A hủy kết bạn (hộp xác nhận); B đang mở chat gửi một tin → màn "Hai bạn không còn là bạn bè". Kết bạn lại → lịch sử cũ hiện lại (cùng mã nhóm).
+  3. `dotnet run scripts/chat-test.cs -- friends` → 24 OK.
+  4. **Kịch bản lỗi:** `dotnet run scripts/chat-test.cs -- friendsdown` → Ctrl+C group-service khi được nhắc (LAG = 3, identity vẫn 200/204) → bật lại → `added,added,removed,removed,added,added`, còn 2 thành viên. Mở Kafka UI → Consumers → `group-service` để thấy LAG.
+  5. **Sự kiện cũ:** `dotnet run scripts/chat-test.cs -- stale` (cần notification-service) → log group-service "bỏ qua sự kiện cũ Removed revision 3 (đã áp revision 5)", số chưa đọc không về 0.
+  6. Xem dữ liệu: `docker exec postgres psql -U chatapp -d identity_db -c "select status, revision from friendships order by updated_at desc limit 5"`; `docker exec postgres psql -U chatapp -d group_db -c "select id, is_direct, friendship_revision from groups where is_direct"`.
+- **Kết quả đã kiểm tra:**
+  - Bước 1: UUID v5 khớp vector RFC 9562 (`2ed6657d-e927-568b-95e1-2665a8aea6a2`); `Order` khớp thứ tự `uuid` của PostgreSQL ở 20 cặp (kể cả biên); 6 trường hợp chèn sai (trùng, ngược, tự kết bạn, người mời ngoài cặp, user không tồn tại) đều bị DB chặn.
+  - Bước 2: 36/36 API qua Gateway; mời chéo 15/15 cặp; chấp nhận ↔ hủy 10 vòng chia 5/5, 0 vòng cả hai thắng; 2 lần chấp nhận cùng lúc → 200, 200.
+  - Bước 3: chấp nhận ×4 → 1 sự kiện; chuỗi chấp nhận → hủy → chấp nhận → đúng 3 sự kiện cùng key, cùng partition 0; chấp nhận ↔ hủy lời mời 10 vòng → số `Accepted` = số lần chấp nhận thắng (4).
+  - Bước 4: replay 11 sự kiện cũ đúng thứ tự offset 0→10 (X–Y còn 2, F–G còn 0); 20/20 luồng chat riêng (chặn 400 cho cả người `user_low_id` = OwnerId); đẩy lại Accepted ×3 → "thêm 0/2", 0 member-* thừa; `test-optimistic-lock.ps1` vẫn 200 + 409.
+  - Bước 4b: revision 1..5, sự kiện mang 2, 3, 5; `Removed` revision 3 đẩy lại → bỏ; cả chuỗi 2, 3, 5 → bỏ cả 3, unread 3 → 3.
+  - Bước 5: `friends` 24/24, `stale` 6/6, `friendsdown` 10/10, hồi quy `basic` ĐÚNG.
+  - Bước 6: Edge headless 25/25 (guard, rail, 3 tab, mời / chấp nhận / từ chối / hủy lời mời / hủy kết bạn với Hủy – Esc – Xác nhận, 409 khi dữ liệu trang đã cũ, bàn phím); `ng build --configuration production` 309 kB, không cảnh báo.
+  - Bước 7: Edge headless 23/23 (chờ chat riêng ~0,2 s rồi Nhắn tin; đầu khung tên người kia, không nút Thành viên; tab Nhóm; tìm không dấu; hủy kết bạn khi đang mở → màn khóa + thanh bên nạp lại; hồi quy nhóm thường bị xóa thành viên; kết bạn lại thấy lịch sử cũ); ảnh sáng / tối.
+- **Lưu ý cho báo cáo:**
+  - **Người bị hủy kết bạn vẫn ở trong phòng SignalR** (giống Phần 7: phòng chỉ kiểm quyền lúc `JoinGroup`) → vẫn có thể NHẬN tin cho tới khi rời / kết nối lại; GỬI bị chặn khi cache Redis bị xóa (~0,4 s sau khi group-service gỡ). Trong khe ~0,4–1 s đó gửi vẫn được (eventual consistency). Giao diện chỉ biết khi gửi bị từ chối.
+  - **Không có tin đẩy cho sự kiện bạn bè** (PLAN không cho sửa notification-service): người mời thấy chat riêng khi về `/chat`, mở Danh bạ, hoặc khi có tin đầu tiên (`UnreadCountChanged` nhóm lạ → nạp lại). Lời mời mới cũng chỉ thấy khi mở / nạp lại Danh bạ.
+  - **F5 rồi mở URL chat riêng cũ** đã bị hủy kết bạn → câu chung "không còn là thành viên" (mã chat riêng đã gặp chỉ nhớ trong bộ nhớ của tab).
+  - Sự kiện phát trước Bước 4b không có `revision` (giải mã ra 0) → áp như Bước 4, không so phiên bản; chỉ có ở dữ liệu test. Một `Removed` mà nhóm chưa từng tồn tại sẽ tạo nhóm 0 thành viên để nhớ revision.
+  - Ô tìm người ở Danh bạ dùng bản sao `user_snapshots` của group-service → user vừa đăng ký có thể chưa tìm thấy trong ~1 s.
+  - Bị **kill** group-service thì mất ~27 s mới đọc bù (Kafka chờ session timeout), Ctrl+C thì gần như ngay (giống Phần 7, 8).
+  - Dev server Angular 12 (webpack 5) có lúc **không biên dịch lại** khi thêm file / module mới (đã gặp ở Bước 6) → khởi động lại `npm start`.
+  - JWT HS256, mọi service giữ secret (Phần 2) – không liên quan riêng Phần 11 nhưng API bạn bè cũng dựa vào đó.
+
 ## Quyết định thiết kế đã thay đổi
 (Ghi lại nếu có sửa so với DESIGN.md và lý do.)
 
@@ -356,4 +479,12 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 - **Phần 8:** thêm cấu hình `SignalR:RedisBackplane` (mặc định bật, Docker `CHAT_BACKPLANE`) chỉ để demo tắt backplane; kênh `chatapp-chat:*`. Thêm `backend/.dockerignore`. Đã ghi DESIGN.md mục 2b, 3.
 - **Phần 9:** `group_member_snapshots` thêm `IsMember`, `LastEventAt`, `LastEventId` – **tombstone + chỉ áp sự kiện mới hơn** theo `(occurredAt, eventId)`. Lý do: member-added và member-removed là 2 topic, đến sai thứ tự thì cách INSERT/DELETE để lại thành viên ma (đo được 28–30 dòng khi replay). Đã cân nhắc gọi gRPC `GetMemberIds` để đồng bộ lại (luôn khớp nguồn, tự sửa khi mất sự kiện) nhưng chọn tombstone vì không thêm phụ thuộc lúc chạy notification → group-service. Đã ghi DESIGN.md mục 3.
 - **Phần 9:** thêm công tắc `Notification:IdempotentConsumer` (mặc định `true`) chỉ để demo đếm trùng. Đã ghi DESIGN.md mục 3.
+- **Phần 10:** `frontend/chat-app/proxy.conf.json` → `proxy.conf.js` (đã ghi DESIGN.md mục 2b). Lý do: dev server Angular 12 (webpack-dev-server 3.11, http-proxy 1.18.1) **sập** khi Gateway trả mã khác 101 cho request WebSocket (502 lúc tắt chat-service, 401 lúc token sai): http-proxy chép câu trả lời vào socket trình duyệt mà không nghe `'error'` → `Unhandled 'error' event ECONNABORTED`. File .js gắn `onProxyReqWs: socket.on('error', …)` → chỉ ghi log `[proxy ws] … ECONNRESET`, dev server sống. Đã tái hiện (sập) và kiểm tra lại sau khi sửa (không sập qua 2 lượt tắt/bật chat-service liên tục).
+- **Phần 10:** hub gặp token hết hạn / 401 khi (re)connect → đăng xuất thay vì thử lại mãi (đã ghi DESIGN.md quy tắc frontend).
+- **Phần 10:** tin cuối ở danh sách nhóm lấy bằng lịch sử `limit=1` cho từng nhóm (không sửa backend); theme tối theo hệ điều hành, không có nút đổi theme (Bước 9b đổi thành lựa chọn Sáng/Tối/Hệ thống). Đã ghi DESIGN.md quy tắc frontend.
+- **Phần 10:** cây thư mục frontend thêm `core/utils/` (`guid.ts`, `hub-connection.ts`), `core/services/theme.service.ts`, `shared/pipes/`; `shared/components` là avatar, unread-badge, connection-banner, confirm-dialog (không làm `loading-spinner` riêng – dùng lớp `.ca-spin` của thiết kế). `GroupApiService.changed$` báo thanh bên nạp lại. Đã ghi DESIGN.md mục 2b.
+- **Phần 10 (khác bản thiết kế giao diện):** bỏ nút "Đính kèm" (không có trong DESIGN) và "Thông tin nhóm" (trùng panel thành viên); không hiện "Hoạt động 15 phút trước" (backend không lưu lần cuối online); thêm nút "Đăng xuất" ở thanh bên (thiết kế không có); Member thấy "Rời nhóm" thay cho "Xóa nhóm"; sửa nhóm bị 409 → "Tải lại bản mới" lấy version mới nhưng GIỮ chữ đang gõ.
+- **Phần 10 – Bước 9b (người dùng yêu cầu):** làm lại bố cục bên trong, chỉ frontend. Thay cho các quyết định cũ của Phần 10: (1) theme **có lựa chọn** Sáng/Tối/Hệ thống ở `/settings` (trước: chỉ theo hệ điều hành, không có nút); (2) nút "Đăng xuất" chuyển từ thanh bên sang thẻ Hồ sơ ở `/settings`; (3) thêm route lazy `/settings` + `shared/components/app-rail`; (4) `relative-time` ("2 phút") thay bằng `list-time` (giờ ở góc phải) và giờ dưới bong bóng; mốc ngày chỉ khi sang ngày (trước: cả khi cách ≥ 15 phút). `Main.dc.html`/`Members.dc.html`/`Empty.dc.html` không còn là chuẩn cho bố cục bên trong. Đã ghi DESIGN.md mục 2b và `docs/UI.md`.
+- **Phần 11 (thiết kế đã duyệt):** (1) thêm **hủy kết bạn**: trạng thái `Removed`, `DELETE /api/friends/{userId}`; nhóm chat riêng GIỮ lại, chỉ gỡ 2 thành viên (member-removed qua outbox) → chat/notification xử lý như gỡ thành viên thường; kết bạn lại thêm lại 2 thành viên, lịch sử cũ hiện lại vì mã nhóm không đổi. (2) **Một topic `identity.friendship-changed`** (`change` = `Accepted`|`Removed`, key `{low}:{high}`) thay cho `identity.friendship-accepted` – 2 topic thì Kafka không bảo đảm thứ tự giữa "chấp nhận" và "hủy" của cùng một cặp. (3) `eventType` lấy theo field `change` (getter `EventType` của lớp gốc không giải mã lại được). (4) Nhóm riêng `OwnerId = user_low_id` chỉ để lấp cột, không mang quyền; mọi thao tác sửa nhóm riêng → 400, chặn trước kiểm tra `OwnerId`. (5) Mời khi người kia đã mời mình → 409; mời lại sau Declined/Cancelled/Removed được; không có đẩy thời gian thực cho sự kiện bạn bè (người mời thấy chat riêng khi nạp lại danh sách hoặc khi có tin). Đã ghi DESIGN.md mục 2b, 3, 4, 5, 7 và PLAN.md.
+- **Phần 11 – Bước 4b (người dùng yêu cầu sau Bước 4):** thêm **số phiên bản** chống sự kiện cũ đến muộn: `friendships.revision` (+1 mỗi lần đổi trạng thái, cùng `SaveChangesAsync` có xmin) → `FriendshipChanged.Revision` → `groups.friendship_revision`; consumer bỏ sự kiện `revision ≤` đã áp. Lý do: Bước 4 chỉ an toàn khi sự kiện trùng đến liền nhau; một `Removed` cũ đến sau `Accepted` mới sẽ gỡ nhầm 2 người, và gửi lại cả chuỗi làm notification xóa/tạo lại bộ đếm (số chưa đọc về 0). KHÔNG dùng `occurredAt` (như tombstone Phần 9) vì đồng hồ giữa các bản identity có thể lệch; số phiên bản do chính dòng dữ liệu cấp nên luôn đúng thứ tự (đồng hồ logic). Đã ghi DESIGN.md mục 3, 4, 5 và PLAN.md.
 - **Phần 9:** quy tắc đánh dấu đã đọc: `LastReadSequence = GREATEST(cũ, mới)`, `UnreadCount = 0` chỉ khi mốc mới VƯỢT mốc cũ; người gửi tin coi như đọc tới tin của mình (cùng quy tắc).

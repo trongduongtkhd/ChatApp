@@ -5,6 +5,7 @@ namespace ChatApp.Contracts.Events;
 public static class KafkaTopics
 {
     public const string UserRegistered = "identity.user-registered";
+    public const string FriendshipChanged = "identity.friendship-changed";
     public const string MemberAdded = "group.member-added";
     public const string MemberRemoved = "group.member-removed";
     public const string ChatMessageSent = "chat.message-sent";

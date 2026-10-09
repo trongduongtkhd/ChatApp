@@ -21,6 +21,7 @@ builder.Services.AddChatAppOutbox<IdentityDbContext>(builder.Configuration);
 
 builder.Services.AddSingleton<JwtTokenService>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<FriendshipService>();
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();

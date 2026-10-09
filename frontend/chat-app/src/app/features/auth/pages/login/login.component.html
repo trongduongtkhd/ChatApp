@@ -1,0 +1,49 @@
+<div class="auth">
+  <section class="auth-brand">
+    <div class="logo">ChatApp</div>
+    <div style="display: flex; flex-direction: column; gap: 10px; max-width: 360px" aria-hidden="true">
+      <div style="align-self: flex-start; background: rgba(255,255,255,.18); padding: 10px 16px; border-radius: 18px">Tối nay họp nhóm lúc mấy giờ?</div>
+      <div style="align-self: flex-end; background: #FFFFFF; color: #0866FF; padding: 10px 16px; border-radius: 18px; font-weight: 600">8 giờ nhé!</div>
+      <div style="align-self: flex-start; background: rgba(255,255,255,.18); padding: 10px 16px; border-radius: 18px">Ok, mình vào đúng giờ</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; max-width: 420px">
+      <h2>Trò chuyện cùng nhóm, mọi lúc.</h2>
+      <p>Tin nhắn đến ngay lập tức, không bao giờ trùng, và vẫn gửi được khi mạng chập chờn.</p>
+    </div>
+  </section>
+
+  <section class="auth-form-wrap">
+    <form class="auth-form" [formGroup]="form" (ngSubmit)="submit()" novalidate>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <h1 class="ca-h1">Đăng nhập</h1>
+        <div class="sub">Chào mừng trở lại, nhóm của bạn đang chờ.</div>
+      </div>
+
+      <div *ngIf="error" class="ca-alert error" role="alert">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v4"></path><path d="M12 16h.01"></path></svg>
+        <span>{{ error }}</span>
+      </div>
+
+      <div class="ca-field" [class.invalid]="invalid('userName')">
+        <label for="u">Tên đăng nhập</label>
+        <input id="u" type="text" formControlName="userName" autocomplete="username" autofocus
+               [attr.aria-invalid]="invalid('userName')" aria-describedby="u-err">
+        <span *ngIf="invalid('userName')" class="err" id="u-err">Nhập tên đăng nhập.</span>
+      </div>
+
+      <div class="ca-field" [class.invalid]="invalid('password')">
+        <label for="p">Mật khẩu</label>
+        <input id="p" type="password" formControlName="password" autocomplete="current-password"
+               [attr.aria-invalid]="invalid('password')" aria-describedby="p-err">
+        <span *ngIf="invalid('password')" class="err" id="p-err">Nhập mật khẩu.</span>
+      </div>
+
+      <button class="ca-btn primary full" type="submit" [disabled]="loading">
+        <span *ngIf="loading" class="ca-spin"></span>
+        {{ loading ? 'Đang đăng nhập…' : 'Đăng nhập' }}
+      </button>
+
+      <div class="switch">Chưa có tài khoản? <a routerLink="/auth/register">Đăng ký</a></div>
+    </form>
+  </section>
+</div>
