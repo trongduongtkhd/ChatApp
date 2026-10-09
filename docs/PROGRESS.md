@@ -14,8 +14,9 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 8 | Scale + Backplane | ✅ Xong |
 | 9 | notification-service | ✅ Xong |
 | 10 | Angular | ⬜ |
-| 11 | Chịu lỗi | ⬜ |
-| 12 | Sao lưu | ⬜ |
+| 11 | Bạn bè + nhắn tin riêng | ⬜ |
+| 12 | Chịu lỗi | ⬜ |
+| 13 | Sao lưu | ⬜ |
 
 ## Ghi chú cho báo cáo
 (Sau mỗi phần ghi: khái niệm đã dùng, thuộc chương nào, file code minh họa, cách demo.)
@@ -137,7 +138,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Kịch bản nhóm: 3 `MemberAdded` (Owner + 2 Member) và 3 `MemberRemoved` (1 tự rời + 2 khi xóa nhóm), cùng key = groupId, cùng partition 0.
   - `kafka-init` chạy lại vẫn exit 0; gửi vào topic không tồn tại → lỗi, không tạo topic rác.
 - **Lưu ý cho báo cáo:**
-  - Bảng `outbox_messages` giữ cả dòng đã gửi (tiện demo/tra cứu) → lớn dần; hướng xử lý: job dọn định kỳ (Hangfire, Phần 12).
+  - Bảng `outbox_messages` giữ cả dòng đã gửi (tiện demo/tra cứu) → lớn dần; hướng xử lý: job dọn định kỳ (Hangfire, Phần 13).
   - Chạy 2 bản service: mỗi bản giữ thứ tự trong lô của mình, giữa 2 lô không tuyệt đối. Phần 5 identity/group chạy 1 bản nên không ảnh hưởng.
   - `added` và `removed` là 2 topic → bên nghe (Phần 7, 9) không được giả định thứ tự giữa chúng.
   - Xóa nhóm: đọc danh sách thành viên rồi mới xóa; người được thêm đúng giữa 2 bước sẽ không nhận `member-removed` (khe hở rất nhỏ, chấp nhận).
@@ -162,7 +163,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - HTTP/2: multiplexing nhiều lời gọi trên 1 kết nối TCP; lần gọi đầu ~300 ms (mở kết nối), sau đó ~5 ms (dùng lại kết nối) → **Chương 4**.
   - REST (client ngoài) vs gRPC (service↔service cần trả lời ngay) vs Kafka (thông báo không chờ) → **Chương 2, 4**.
   - gRPC đọc thẳng dữ liệu gốc → nhất quán mạnh (thêm thành viên là thấy ngay), khác với bản sao qua Kafka (eventual) → **Chương 2**.
-  - Đổi lại: phụ thuộc lúc chạy (temporal coupling) – group-service chết thì chat-service không kiểm tra được → Phần 7 thêm Redis cache, Phần 11 thêm Polly → **Chương 2, 8**.
+  - Đổi lại: phụ thuộc lúc chạy (temporal coupling) – group-service chết thì chat-service không kiểm tra được → Phần 7 thêm Redis cache, Phần 12 thêm Polly → **Chương 2, 8**.
   - Deadline + status code (`InvalidArgument`, `Unavailable`, `DeadlineExceeded`) = phát hiện lỗi bằng timeout → **Chương 8**.
   - Địa chỉ service qua cấu hình (`localhost:5012` local, `group-service:5012` qua Docker DNS) → **Chương 5**.
   - API nội bộ: không qua Gateway, không JWT, không publish port ra ngoài khi chạy Docker → **Chương 2, 5**.
@@ -228,7 +229,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - **Nhiều tab mở nhóm khác nhau:** đóng tab cuối chỉ báo offline cho các phòng tab đó đã vào (`Context.Items` là của từng kết nối). Sửa được bằng cách lưu phòng của user ở Redis (key mới, chưa làm).
   - **Người bị xóa khỏi nhóm vẫn NHẬN tin** nếu đang ở trong phòng SignalR, tới khi rời phòng/kết nối lại (phòng chỉ kiểm tra quyền lúc `JoinGroup`); gửi thì bị chặn ngay khi cache bị xóa.
   - **Sự kiện cũ xóa cache mới:** tạo nhóm → nạp cache ngay → `member-added` của Owner đến muộn ~1 s xóa mất. An toàn (chỉ thêm 1 lần gRPC) nhưng group-service chết đúng lúc đó thì nhóm "tưởng có cache" bị từ chối.
-  - **gRPC reconnect backoff:** sau vài lần lỗi, client chờ lâu dần mới thử lại; trong lúc chờ lời gọi bị từ chối ngay (`Unavailable` ~1 s thay vì 3 s); group-service sống lại có thể mất vài giây mới thông. Phần 11 (Polly).
+  - **gRPC reconnect backoff:** sau vài lần lỗi, client chờ lâu dần mới thử lại; trong lúc chờ lời gọi bị từ chối ngay (`Unavailable` ~1 s thay vì 3 s); group-service sống lại có thể mất vài giây mới thông. Phần 12 (Polly).
   - **Giết chat-service đột ngột → Kafka chờ session timeout:** bản mới khởi động sau 2,1 s nhưng 29,3 s mới được giao partition → trong lúc đó không xử lý `member-added` → người mới thêm bị từ chối. Ctrl+C (`Close()`) thì không gặp.
   - Log `fail` có `23505` khi gửi đồng thời / bộ đếm hỏng là EF ghi lại INSERT bị chặn TRƯỚC khi code thử lại; không phải lỗi người dùng (không có `Failed to invoke hub method` tương ứng).
   - Chạy 1 bản nên `Clients.Group(...)` chỉ phát trong bản đó → Phần 8 thêm Redis Backplane.
@@ -271,8 +272,8 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - `failover --action kill`: vẫn nối lại ≈ 0,1 s, 40/40 tin; nhưng lan KHÔNG nhận offline, `presence:{duong}` còn 2 ConnectionId (1 là kết nối ma). Bản bị kill đang giữ partition `member-added` → bản còn sống KHÔNG được giao; 35 giây sau (khi bản bị kill khởi động lại và vào group) mới chia lại.
   - Tắt cả 2 bản: request đầu 504 sau 4,0 s (thử 2 bản × `proxy_connect_timeout 2s`), request ngay sau 502 sau 2 ms (`no live upstreams`).
 - **Lưu ý cho báo cáo:**
-  - Hai bản đều chết → Gateway trả **504 rồi 502** (không phải luôn 502): ví dụ phát hiện lỗi bằng timeout (chậm) rồi nhớ trạng thái hỏng để từ chối nhanh (`fail_timeout` 10 s) – ý tưởng giống circuit breaker ở Phần 11.
-  - **Kill vs stop:** stop (SIGTERM) → ASP.NET đóng kết nối đúng cách → `OnDisconnectedAsync` chạy, consumer `Close()` → mọi thứ sạch. Kill (SIGKILL) → kết nối ma trong presence, offline không được báo, Kafka chờ session timeout mới chia lại partition (trong lúc đó `member-added` không ai xử lý → người mới thêm bị từ chối tới khi cache hết hạn/được xóa). Xử lý: Phần 11 (heartbeat + TTL cho presence).
+  - Hai bản đều chết → Gateway trả **504 rồi 502** (không phải luôn 502): ví dụ phát hiện lỗi bằng timeout (chậm) rồi nhớ trạng thái hỏng để từ chối nhanh (`fail_timeout` 10 s) – ý tưởng giống circuit breaker ở Phần 12.
+  - **Kill vs stop:** stop (SIGTERM) → ASP.NET đóng kết nối đúng cách → `OnDisconnectedAsync` chạy, consumer `Close()` → mọi thứ sạch. Kill (SIGKILL) → kết nối ma trong presence, offline không được báo, Kafka chờ session timeout mới chia lại partition (trong lúc đó `member-added` không ai xử lý → người mới thêm bị từ chối tới khi cache hết hạn/được xóa). Xử lý: Phần 12 (heartbeat + TTL cho presence).
   - Trong 2 lần chạy `failover`, lan tình cờ nằm ở bản KHÔNG bị tắt nên "lỡ 0 tin". Nếu cả 2 cùng ở bản bị tắt thì tin gửi lúc lan đang nối lại chỉ lấy được qua REST lịch sử – script có sẵn bước lấy bù đó.
   - Bỏ negotiate → chỉ dùng WebSocket, không còn đường lùi long polling khi mạng chặn WebSocket (chấp nhận được với trình duyệt hiện nay). Client không biết `ConnectionId` (do negotiate trả), server vẫn có.
   - Backplane: mỗi tin thêm 1 vòng Redis; Redis chết → không đẩy tin giữa các bản (tin vẫn lưu DB/Kafka); rất nhiều bản → Redis thành nút thắt.
@@ -331,7 +332,7 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
   - Server không biết seq lớn nhất thật (không lưu tin) → tin `lastReadSequence` của client; gửi `999999` vẫn 200 → nhóm đó không đếm tin < 999999 cho chính user đó (thiệt hại tự chịu).
   - Mark read về 0 khi vượt mốc: client gửi mốc thấp hơn tin mới nhất đã đếm thì các tin sau mốc bị coi là đã đọc (muốn chính xác phải lưu từng seq). Angular gửi seq lớn nhất đang hiển thị.
   - Dựa vào đồng hồ group-service (1 bản). Nhiều bản lệch đồng hồ → có thể áp sai; hướng sửa: version tăng dần cho từng (nhóm, user).
-  - `processed_events` (4.201 dòng) và tombstone lớn dần → job dọn (Hangfire, Phần 12). Xóa sổ quá sớm thì sự kiện trùng đến muộn bị đếm lại → giữ lâu hơn thời gian lưu của Kafka.
+  - `processed_events` (4.201 dòng) và tombstone lớn dần → job dọn (Hangfire, Phần 13). Xóa sổ quá sớm thì sự kiện trùng đến muộn bị đếm lại → giữ lâu hơn thời gian lưu của Kafka.
   - Chạy 1 bản: `Clients.User` chỉ tới kết nối trên bản này; 2 bản cần Redis Backplane như Phần 8. Bản thân bộ đếm chịu được 2 bản (PK `processed_events`, câu UPDATE nguyên tử, 3 partition chia được).
   - SignalR không gửi bù thông báo lỡ → Angular (Phần 10) gọi `GET /unread` sau khi kết nối/kết nối lại.
   - Reset offset cần consumer group KHÔNG hoạt động: dừng bằng kill → Kafka giữ member cũ ~45 s (`group is Stable`), Ctrl+C thì reset được ngay.

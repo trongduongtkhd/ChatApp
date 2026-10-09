@@ -14,5 +14,13 @@ Mỗi phần: giải thích trước → code từng bước → giải thích k
 | 8 | 2 bản chat-service + Nginx + Redis Backplane | Load balancing, backplane | 4, 8 | Tắt backplane: user ở 2 bản không thấy tin nhau; bật lại thì thấy |
 | 9 | notification-service: unread, idempotent consumer, hub | At-least-once, idempotent consumer | 4, 6 | Gửi lại cùng event → không đếm 2 lần |
 | 10 | Angular: login, danh sách nhóm, khung chat, unread | SignalR client, withAutomaticReconnect, guard, interceptor JWT | 4, 8 | Chat 2 trình duyệt; tắt 1 bản chat-service → tự kết nối lại |
-| 11 | Chịu lỗi: Polly, Health Checks, Serilog + Seq | Retry, circuit breaker, timeout, health check, log tập trung | 8 | Tắt group-service → circuit breaker mở, log trong Seq |
-| 12 | Sao lưu: PostgreSQL replication, backup Hangfire, Redis AOF | Replication vs backup, restore, Kafka replay | 3, 7 | Tắt primary đọc replica; xóa nhầm rồi restore |
+| 11 | Bạn bè và nhắn tin riêng (khung, chưa làm – chi tiết bên dưới) | Quan hệ 2 chiều + trạng thái lời mời (Pending → Accepted/Declined/Cancelled), ID tất định theo cặp userId (chống tạo trùng), idempotent consumer, eventual consistency | 2, 4, 5, 6 | A mời B → B chấp nhận → nhóm 2 người tự xuất hiện ở cả 2 bên; gửi lại cùng sự kiện / chấp nhận 2 lần → vẫn 1 nhóm |
+| 12 | Chịu lỗi: Polly, Health Checks, Serilog + Seq | Retry, circuit breaker, timeout, health check, log tập trung | 8 | Tắt group-service → circuit breaker mở, log trong Seq |
+| 13 | Sao lưu: PostgreSQL replication, backup Hangfire, Redis AOF | Replication vs backup, restore, Kafka replay | 3, 7 | Tắt primary đọc replica; xóa nhầm rồi restore |
+
+## Phần 11 – Bạn bè và nhắn tin riêng (khung, chưa làm)
+- identity-service: bảng `friendships` + API gửi / chấp nhận / từ chối / hủy lời mời; danh sách bạn, lời mời đến, lời mời đã gửi.
+- Chấp nhận kết bạn → phát Kafka `identity.friendship-accepted` (qua Transactional Outbox như các sự kiện khác).
+- group-service nghe sự kiện → tự tạo nhóm 2 người `is_direct = true`; mã nhóm cố định theo cặp userId để không tạo trùng.
+- Frontend: trang Danh bạ (Bạn bè / Lời mời / Đã gửi); tab "Nhóm" lọc theo `isDirect`.
+- chat-service và notification-service không sửa.

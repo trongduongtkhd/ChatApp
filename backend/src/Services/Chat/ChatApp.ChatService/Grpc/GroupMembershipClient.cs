@@ -5,7 +5,7 @@ namespace ChatApp.ChatService.Grpc;
 // Lớp bọc gRPC client do Grpc.Tools sinh (GroupMembership.GroupMembershipClient):
 // - Đổi Guid ↔ string (Protobuf không có kiểu GUID) để code nghiệp vụ chỉ thấy Guid.
 // - Đặt deadline cho mọi lời gọi: group-service treo thì không chờ mãi.
-// Phần 7 (hub gửi tin) gọi lớp này; Phần 11 gắn Polly (retry, circuit breaker) vào đây.
+// Phần 7 (hub gửi tin) gọi lớp này; Phần 12 gắn Polly (retry, circuit breaker) vào đây.
 public class GroupMembershipClient(GroupMembership.GroupMembershipClient client, IConfiguration configuration)
 {
     private readonly TimeSpan _deadline = TimeSpan.FromSeconds(configuration.GetValue("GrpcServices:DeadlineSeconds", 3));
