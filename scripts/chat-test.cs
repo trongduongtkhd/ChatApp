@@ -11,14 +11,14 @@
 //   dotnet run scripts/chat-test.cs -- grpc    # kiểm tra thành viên (qua gRPC) khi thêm/xóa thành viên, xóa nhóm
 //   dotnet run scripts/chat-test.cs -- dup     # gửi trùng messageId (tuần tự + đồng thời) → chỉ một tin
 //   dotnet run scripts/chat-test.cs -- load    # bắn 200 tin song song (--count 200 --connections 20) → seq không trùng, không thiếu
-//   dotnet run scripts/chat-test.cs -- seqlost # làm hỏng bộ đếm Redis (xóa key, lùi số) → vẫn cấp đúng số
-//   dotnet run scripts/chat-test.cs -- cache   # cache thành viên Redis: nạp, TTL, bị xóa khi thêm/xóa thành viên
-//   dotnet run scripts/chat-test.cs -- presence # online/offline: nhiều kết nối của một user, đóng lần lượt
+//   dotnet run scripts/chat-test.cs -- seqlost # làm hỏng state Mongo → vẫn cấp đúng số
+//   cache/down là chế độ legacy Phần 7; hiện dùng node scripts/admin-dependency-test.cjs
+//   dotnet run scripts/chat-test.cs -- presence # Presence v2: tự tạo user, nhiều tab, lease 60s, typing, thu hồi phòng
+//   dotnet run scripts/chat-test.cs -- presencekill # SIGKILL replica 2, dọn lease, Kafka, REST lấy bù; tự start lại
 //   dotnet run scripts/chat-test.cs -- history # REST lịch sử: lật trang bằng beforeSeq, lỗi 400/401/403/404
 //   dotnet run scripts/chat-test.cs -- send --group <groupId> --user lan --count 5 --interval 1500
 //                                               # Phần 10: vào phòng một nhóm CÓ SẴN rồi gửi từ từ → xem tin realtime và
 //                                               # chấm online trên Angular (groupId lấy từ URL /chat/<groupId>)
-//   dotnet run scripts/chat-test.cs -- down    # kịch bản lỗi: tắt group-service giữa chừng (nhóm có cache vẫn chat được) rồi bật lại
 //   dotnet run scripts/chat-test.cs -- backplane # Phần 8: 2 user nối THẲNG vào 2 bản chat-service khác nhau → có thấy tin nhau không
 //   dotnet run scripts/chat-test.cs -- lb      # Phần 8: Nginx chia request/kết nối cho 2 bản; có negotiate thì lỗi 404
 //   dotnet run scripts/chat-test.cs -- failover # Phần 8: đang chat thì tắt bản chat-service giữ kết nối → tự nối lại sang bản kia
@@ -56,6 +56,12 @@ var opt = Options.Parse(args);
 var api = new Api(opt.Gateway);
 ChatClient.Negotiate = opt.Negotiate;
 
+if (opt.Mode is "cache" or "down")
+{
+    Console.WriteLine("cache/down thuộc thiết kế Phần 7. Công việc 3 kiểm quyền từ nguồn; dùng: node scripts/admin-dependency-test.cjs");
+    return 2;
+}
+
 try
 {
     var ok = opt.Mode switch
@@ -66,7 +72,8 @@ try
         "load" => await Modes.Load(api, opt),
         "seqlost" => await Modes.SeqLost(api, opt),
         "cache" => await Modes.Cache(api, opt),
-        "presence" => await Modes.Presence(api, opt),
+        "presence" => await Modes.PresenceV2(api, opt),
+        "presencekill" => await Modes.PresenceKill(api, opt),
         "history" => await Modes.History(api, opt),
         "down" => await Modes.Down(api, opt),
         "backplane" => await Modes.Backplane(api, opt),
@@ -93,6 +100,99 @@ catch (Exception ex)
 
 static class Modes
 {
+    // Giết thật một replica: OnDisconnectedAsync không chạy; Presence phải tự dọn phiên.
+    public static async Task<bool> PresenceKill(Api api, Options opt)
+    {
+        var users = await NewUsersAsync(api, "ka", "kb");
+        var (a, b) = (users[0], users[1]);
+        var room = await api.CreateGroupAsync(a, "Presence SIGKILL");
+        await api.AddMemberAsync(a, room, b.UserId);
+        await using var ca = await ChatClient.ConnectAsync(opt.InstanceA, a);
+        await using var cb = await ChatClient.ConnectAsync(opt.InstanceB, b);
+        await ca.Hub.InvokeAsync("JoinGroup", room);
+        await cb.Hub.InvokeAsync("JoinGroup", room);
+        var checks = new List<bool>();
+        checks.Add(Out.Check("Trước kill: B online", await WaitUntil(() => ca.Activity?.OnlineUserIds.Contains(b.UserId) == true, 5000)));
+        MessageDto? offlineMessage = null;
+        try
+        {
+            Out.Info("SIGKILL chat-service-2; chờ hết lease trong khi A vẫn online trên replica 1...");
+            Docker("compose kill chat-service-2");
+            checks.Add(Out.Check("Kết nối B thực sự mất", await WaitUntil(() => cb.Hub.State == HubConnectionState.Disconnected, 12000)));
+            offlineMessage = await ca.SendAsync(room, "Tin gửi trong lúc B offline vì replica chết");
+            var lease = ca.Activity?.LeaseSeconds ?? 60;
+            checks.Add(Out.Check("Không còn online ma sau SIGKILL", await WaitUntil(() => ca.Activity is { Known: true } p && !p.OnlineUserIds.Contains(b.UserId), (lease + 8) * 1000)));
+            // GetOnline lọc lease quá hạn ngay; tác vụ dọn vật lý có thể chạy sau đó tối đa một chu kỳ.
+            checks.Add(Out.Check("Redis đã dọn phiên chết", await WaitUntil(() => Redis($"ZCARD presence:v2:sessions:{b.UserId}") == "0", 5000)));
+            checks.Add(Out.Check("Kafka vẫn nhận sự kiện khi B offline", await WaitUntil(() => Mongo($"print(chat.outbox_messages.countDocuments({{groupId:'{room}',processedAt:{{$ne:null}}}}))") == "1", 10000)));
+        }
+        finally { Docker("compose start chat-service-2"); }
+        await Task.Delay(2500);
+        await using var restored = await ChatClient.ConnectAsync(opt.InstanceB, b);
+        await restored.Hub.InvokeAsync("JoinGroup", room);
+        checks.Add(Out.Check("Replica sống lại → B online", await WaitUntil(() => ca.Activity?.OnlineUserIds.Contains(b.UserId) == true, 6000)));
+        var history = await api.GetMessagesAsync(b, $"/api/chat/groups/{room}/messages?limit=50");
+        checks.Add(Out.Check("REST lấy bù đúng tin offline", history.Any(m => m.Id == offlineMessage!.Id)));
+        return checks.All(x => x);
+    }
+
+    // Presence v2: tự tạo dữ liệu test, hai replica, không cần mở phòng để xem online.
+    public static async Task<bool> PresenceV2(Api api, Options opt)
+    {
+        var users = await NewUsersAsync(api, "pa", "pb", "pc");
+        var (a, b, c) = (users[0], users[1], users[2]);
+        var room = await api.CreateGroupAsync(a, "Presence v2 AB");
+        await api.AddMemberAsync(a, room, b.UserId);
+        var alone = await api.CreateGroupAsync(a, "Presence chỉ mình A");
+        await api.InviteFriendAsync(a, b.UserId);
+        var accepted = await api.AcceptFriendAsync(b, a.UserId);
+        await using var ca = await ChatClient.ConnectAsync(opt.InstanceA, a);
+        await using var cb1 = await ChatClient.ConnectAsync(opt.InstanceB, b);
+        await using var cb2 = await ChatClient.ConnectAsync(opt.InstanceA, b, autoHeartbeat: false);
+        await using var cc = await ChatClient.ConnectAsync(opt.InstanceB, c);
+        var checks = new List<bool>();
+        checks.Add(Out.Check("Snapshot có quyền và trạng thái đầy đủ", await WaitUntil(() => ca.Activity?.Known == true && ca.Activity.OnlineUserIds.Contains(b.UserId), 10000)));
+        checks.Add(Out.Check("Bạn bè online dù chưa JoinGroup", ca.Activity?.FriendIds.Contains(b.UserId) == true));
+        checks.Add(Out.Check("Nhóm có đúng 1 thành viên KHÁC online", ca.Activity?.OnlineCountsByGroup.GetValueOrDefault(room) == 1));
+        checks.Add(Out.Check("Chỉ mình A online → nhóm không sáng", ca.Activity?.OnlineCountsByGroup.GetValueOrDefault(alone) == 0));
+        checks.Add(Out.Check("Người lạ C không lộ trong snapshot A", ca.Activity?.OnlineUserIds.Contains(c.UserId) == false));
+        await ca.Hub.InvokeAsync("JoinGroup", room);
+        await cb1.Hub.InvokeAsync("JoinGroup", room);
+        await cb1.Hub.InvokeAsync("SetTyping", room, true);
+        checks.Add(Out.Check("Đang gõ đi qua hai replica", await WaitUntil(() => ca.Typing.Any(t => t.GroupId == room && t.UserId == b.UserId && t.IsTyping), 4000)));
+        checks.Add(await Out.ExpectHubError("Người ngoài không được gửi đang gõ", () => cc.Hub.InvokeAsync("SetTyping", room, true)));
+        var sent = await ca.SendAsync(room, "Tin kiểm thử presence");
+        checks.Add(Out.Check("Tin realtime qua hai replica", await WaitUntil(() => cb1.Received.Any(m => m.Id == sent.Id), 4000)));
+        try { await cb1.Hub.InvokeAsync("EndSession"); } catch (Exception) when (cb1.Hub.State != HubConnectionState.Connected) { }
+        await ca.Hub.InvokeAsync("Heartbeat");
+        checks.Add(Out.Check("Thu hồi một tab, tab B2 vẫn online", ca.Activity?.OnlineUserIds.Contains(b.UserId) == true));
+        var lease = ca.Activity?.LeaseSeconds ?? 60;
+        // B2 không gia hạn, đóng transport: server không nhận EndSession → phải tự dọn lease.
+        await cb2.Hub.StopAsync();
+        Out.Info($"Chờ lease {lease}s hết hạn (A vẫn gửi heartbeat tự động)...");
+        checks.Add(Out.Check("Phiên mất đột ngột tự offline", await WaitUntil(() => ca.Activity is { Known: true } p && !p.OnlineUserIds.Contains(b.UserId), (lease + 8) * 1000)));
+        await using var cb3 = await ChatClient.ConnectAsync(opt.InstanceB, b);
+        checks.Add(Out.Check("Kết nối mới phục hồi online", await WaitUntil(() => ca.Activity?.OnlineUserIds.Contains(b.UserId) == true, 6000)));
+        await cb3.Hub.InvokeAsync("JoinGroup", room);
+        await api.RemoveMemberAsync(a, room, b.UserId);
+        checks.Add(Out.Check("B được thông báo thu hồi phòng", await WaitUntil(() => cb3.Revoked.Contains(room), 6000)));
+        var before = cb3.Received.Count;
+        await ca.SendAsync(room, "B không còn được nhận");
+        await Task.Delay(500);
+        checks.Add(Out.Check("B bị gỡ không còn nhận tin phòng", cb3.Received.Count == before));
+        checks.Add(await Out.ExpectHubError("B bị gỡ không được gõ", () => cb3.Hub.InvokeAsync("SetTyping", room, true)));
+        // Cũng kiểm tra chat riêng giữ mã và hoạt động bình thường.
+        var direct = accepted.DirectGroupId!.Value;
+        await ca.Hub.InvokeAsync("JoinGroup", direct);
+        await cb3.Hub.InvokeAsync("JoinGroup", direct);
+        var dm = await ca.SendAsync(direct, "Chat riêng sau khi thay Presence");
+        checks.Add(Out.Check("Chat riêng vẫn nhận tin", await WaitUntil(() => cb3.Received.Any(m => m.Id == dm.Id), 4000)));
+        await api.UnfriendAsync(a, b.UserId);
+        checks.Add(Out.Check("Hủy kết bạn thu hồi phòng riêng", await WaitUntil(() => cb3.Revoked.Contains(direct), 6000)));
+        checks.Add(Out.Check("Hủy kết bạn ngừng theo dõi online", await WaitUntil(() => ca.Activity is { Known: true } p && !p.FriendIds.Contains(b.UserId) && !p.OnlineUserIds.Contains(b.UserId), 6000)));
+        return checks.All(x => x);
+    }
+
     // Bước 2: A tạo nhóm, thêm B; A và B vào phòng; A gửi 3 tin, B gửi 1 tin → cả hai nhận đủ 4 tin, seq tăng dần.
     // Người ngoài (C) JoinGroup / SendMessage → bị từ chối. Kết nối không token → 401.
     public static async Task<bool> Basic(Api api, Options opt)
@@ -152,8 +252,7 @@ static class Modes
         {
             checks.Add(Out.Check("Kết nối không token bị từ chối", ex.StatusCode == System.Net.HttpStatusCode.Unauthorized, $"{(int?)ex.StatusCode}"));
         }
-
-        Out.Info($"\nXem trong DB: docker exec postgres psql -U chatapp -d chat_db -c \"select sequence_number, sender_name, content from messages where group_id = '{groupId}' order by sequence_number\"");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
         Out.Info($"Xem bộ đếm:  docker exec redis redis-cli GET chat:seq:{groupId}");
         return checks.All(x => x);
     }
@@ -232,8 +331,8 @@ static class Modes
             $"nhận {connB.Received.Count}: seq {string.Join(", ", connB.Received.Select(m => m.SequenceNumber))}"));
 
         Out.Info($"\nDB phải có đúng 3 tin và 3 dòng outbox:");
-        Out.Info($"  docker exec postgres psql -U chatapp -d chat_db -c \"select sequence_number, id, content from messages where group_id = '{groupId}' order by sequence_number\"");
-        Out.Info($"  docker exec postgres psql -U chatapp -d chat_db -c \"select event_type, key, processed_at, payload->>'sequenceNumber' as seq from outbox_messages where key = '{groupId}' order by occurred_at\"");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
         return checks.All(x => x);
     }
 
@@ -285,53 +384,39 @@ static class Modes
         Out.Info($"Số lần tin đến người nghe KHÔNG theo thứ tự seq: {outOfOrder} → client phải tự sắp theo sequenceNumber");
 
         Out.Info($"\nKiểm tra trong DB:");
-        Out.Info($"  docker exec postgres psql -U chatapp -d chat_db -c \"select count(*), count(distinct sequence_number), min(sequence_number), max(sequence_number) from messages where group_id = '{groupId}'\"");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
         return checks.All(x => x);
     }
 
-    // Bước 4 – bộ đếm Redis hỏng: (1) mất key, (2) key bị lùi về số cũ, (3) mất key đúng lúc nhiều người đang gửi.
-    // Script tự làm hỏng Redis bằng "docker exec redis redis-cli ...".
+    // Bộ đếm Mongo trong transaction: mất state hoặc state lùi đều phục hồi theo dữ liệu thật.
     public static async Task<bool> SeqLost(Api api, Options opt)
     {
-        var a = await api.LoginAsync(opt.User, opt.Password);
-        var groupId = await api.CreateGroupAsync(a, "Demo mất bộ đếm");
-        var key = $"chat:seq:{groupId}";
+        var users = await NewUsersAsync(api, "sq");
+        var a = users[0];
+        var group = await api.CreateGroupAsync(a, "Mongo counter recovery");
         await using var conn = await ChatClient.ConnectAsync(opt.Gateway, a);
-        for (var i = 1; i <= 3; i++) await conn.SendAsync(groupId, $"tin {i}");
-        Out.Info($"Nhóm {groupId}: đã gửi 3 tin, {key} = {Redis($"GET {key}")}\n");
-        var checks = new List<bool>();
-
-        // (1) Mất key: không có EXISTS + khởi tạo từ MAX thì INCR sẽ trả 1 → trùng.
-        Out.Info($"(1) redis-cli DEL {key} → {Redis($"DEL {key}")}");
-        var m4 = await conn.SendAsync(groupId, "sau khi mất key");
-        checks.Add(Out.Check("Tin tiếp theo có seq = 4 (khởi tạo lại từ MAX trong DB)", m4.SequenceNumber == 4, $"seq={m4.SequenceNumber}"));
-
-        // (2) Key bị lùi (giống Redis khôi phục từ bản sao lưu cũ): EXISTS = có nên không phát hiện trước được.
-        //     INCR → 2 (đã dùng) → unique index từ chối → đồng bộ lại → thử lại.
-        Out.Info($"(2) redis-cli SET {key} 1 → {Redis($"SET {key} 1")}");
-        var m5 = await conn.SendAsync(groupId, "sau khi bộ đếm bị lùi");
-        checks.Add(Out.Check("Tin tiếp theo có seq = 5 (phát hiện trùng, đồng bộ lại, thử lại)", m5.SequenceNumber == 5, $"seq={m5.SequenceNumber}"));
-
-        // (3) Mất key trong lúc 20 kết nối đang gửi cùng lúc (400 tin, đủ lâu để lệnh DEL rơi vào giữa chừng;
-        //     "docker exec" mất vài trăm ms mới chạy).
-        const int total = 400;
-        var conns = await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => ChatClient.ConnectAsync(opt.Gateway, a)));
-        var sending = Task.WhenAll(conns.Select(async c =>
-        {
-            var mine = new List<MessageDto>();
-            for (var k = 0; k < total / 20; k++) mine.Add(await c.SendAsync(groupId, "song song"));
-            return mine;
-        }));
-        await Task.Delay(100);
-        Out.Info($"(3) Đang có 20 kết nối gửi {total} tin, redis-cli DEL {key} → {Redis($"DEL {key}")}");
-        var parallel = (await sending).SelectMany(x => x).Select(m => m.SequenceNumber).ToList();
-        foreach (var c in conns) await c.DisposeAsync();
-        checks.Add(Out.Check($"{total} tin song song đều lưu được, không trùng seq",
-            parallel.Count == total && parallel.Distinct().Count() == total, $"{parallel.Count} tin, {parallel.Distinct().Count()} seq khác nhau"));
-
-        Out.Info($"\nXem log chat-service: các dòng \"Đồng bộ lại bộ đếm {key} ...\"");
-        Out.Info($"  docker exec postgres psql -U chatapp -d chat_db -c \"select count(*), count(distinct sequence_number), max(sequence_number) from messages where group_id = '{groupId}'\"");
+        for (var i = 0; i < 3; i++) await conn.SendAsync(group, "counter " + i);
+        await WaitUntil(() => Mongo($"print(chat.outbox_messages.countDocuments({{groupId:'{group}',processedAt:null}}))") == "0");
+        Mongo($"print(JSON.stringify(chat.conversation_state.deleteOne({{_id:'{group}'}})))");
+        var m4 = await conn.SendAsync(group, "Sau mất state");
+        var checks = new List<bool> { Out.Check("Mất state Mongo: seq tiếp tục 4", m4.SequenceNumber == 4) };
+        Mongo($"print(JSON.stringify(chat.conversation_state.updateOne({{_id:'{group}'}},{{$set:{{lastSeq:NumberLong('1')}}}})))");
+        var m5 = await conn.SendAsync(group, "Sau state bị lùi");
+        checks.Add(Out.Check("State lùi: nâng floor từ MAX, seq 5", m5.SequenceNumber == 5));
         return checks.All(x => x);
+    }
+
+    static string Mongo(string script)
+    {
+        var psi = new System.Diagnostics.ProcessStartInfo("docker") { RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var arg in new[] { "exec", "-i", "mongo-router", "mongosh", "--quiet", "chat_history", "--file", "/dev/stdin" }) psi.ArgumentList.Add(arg);
+        using var p = System.Diagnostics.Process.Start(psi)!;
+        var error = p.StandardError.ReadToEndAsync();
+        var output = p.StandardOutput.ReadToEndAsync();
+        p.StandardInput.WriteLine("const chat = db.getSiblingDB('chat_history');\n" + script);
+        p.StandardInput.Close(); p.WaitForExit();
+        if (p.ExitCode != 0) throw new InvalidOperationException("Mongo test: " + error.GetAwaiter().GetResult());
+        return output.GetAwaiter().GetResult().Trim();
     }
 
     static string Redis(string command) => Docker($"exec redis redis-cli {command}");
@@ -442,83 +527,21 @@ static class Modes
             throw new ArgumentException("Cần --group <groupId> (lấy từ URL http://localhost:4200/chat/<groupId>)");
         var u = await api.LoginAsync(opt.User, opt.Password);
         await using var conn = await ChatClient.ConnectAsync(opt.Gateway, u);
-        var online = await conn.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        Out.Info($"{u.UserName} đã vào phòng {groupId}, đang online: {online.Count} người");
+        await conn.Hub.InvokeAsync("JoinGroup", groupId);
+        var online = conn.Activity?.OnlineUserIds ?? [];
+        Out.Info($"{u.UserName} đã vào phòng {groupId}, đang online: {online.Length} người");
         for (var i = 1; i <= opt.Count; i++)
         {
             var m = await conn.SendAsync(groupId, $"Tin {i}/{opt.Count} từ {u.UserName} lúc {DateTime.Now:HH:mm:ss}");
             Out.Info($"  gửi xong seq {m.SequenceNumber}: {m.Content}");
             if (i < opt.Count) await Task.Delay(opt.Interval);
         }
-        Out.Info("Giữ kết nối thêm 3 giây rồi đóng → trình duyệt thấy offline");
+        Out.Info("Giữ kết nối thêm 3 giây rồi đóng → chờ lease hết hạn mới offline");
         await Task.Delay(3000);
         return true;
     }
 
-    // Bước 6 – presence: A ngồi trong phòng; B mở 2 kết nối, đóng lần lượt.
-    // Đóng kết nối thứ nhất → A KHÔNG nhận offline (B vẫn còn tab khác). Đóng kết nối cuối → A nhận offline.
-    public static async Task<bool> Presence(Api api, Options opt)
-    {
-        var a = await api.LoginAsync(opt.User, opt.Password);
-        var b = await api.LoginAsync(opt.Other, opt.Password);
-        var groupId = await api.CreateGroupAsync(a, "Demo presence");
-        await api.AddMemberAsync(a, groupId, b.UserId);
-        var keyB = $"presence:{b.UserId}";
-        Out.Info($"Nhóm {groupId}: {a.UserName} + {b.UserName} ({b.UserId})\n");
-        var checks = new List<bool>();
-
-        await using var connA = await ChatClient.ConnectAsync(opt.Gateway, a);
-        var onlineSeenByA = await connA.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        Out.Info($"{a.UserName} JoinGroup → online: {Names(onlineSeenByA, a, b)}");
-        checks.Add(Out.Check($"Lúc đầu chỉ {a.UserName} online", onlineSeenByA.Count == 1 && onlineSeenByA[0] == a.UserId));
-
-        // B mở kết nối 1 → vào phòng → A nhận "B online"; JoinGroup của B trả về cả A và B.
-        var b1 = await ChatClient.ConnectAsync(opt.Gateway, b);
-        var onlineSeenByB = await b1.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        Out.Info($"{b.UserName} (kết nối 1) JoinGroup → online: {Names(onlineSeenByB, a, b)}");
-        checks.Add(Out.Check($"{b.UserName} thấy cả 2 online", onlineSeenByB.Count == 2));
-        checks.Add(Out.Check($"{a.UserName} nhận UserPresenceChanged({b.UserName}, true)",
-            await WaitUntil(() => HasEvent(connA, b.UserId, true), 3000)));
-
-        // B mở kết nối 2 (tab thứ hai).
-        var b2 = await ChatClient.ConnectAsync(opt.Gateway, b);
-        await b2.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        Out.Info($"{b.UserName} mở kết nối 2 → redis-cli SCARD {keyB} = {Redis($"SCARD {keyB}")}");
-        checks.Add(Out.Check($"{keyB} có 2 ConnectionId", Redis($"SCARD {keyB}") == "2"));
-
-        // Đóng kết nối 1 → vẫn còn kết nối 2 → KHÔNG báo offline.
-        await b1.DisposeAsync();
-        await Task.Delay(1000);
-        checks.Add(Out.Check($"Đóng kết nối 1 → {a.UserName} KHÔNG nhận offline", !HasEvent(connA, b.UserId, false)));
-        checks.Add(Out.Check($"{keyB} còn 1 ConnectionId", Redis($"SCARD {keyB}") == "1"));
-
-        // Đóng kết nối cuối → offline.
-        await b2.DisposeAsync();
-        checks.Add(Out.Check($"Đóng kết nối cuối → {a.UserName} nhận UserPresenceChanged({b.UserName}, false)",
-            await WaitUntil(() => HasEvent(connA, b.UserId, false), 3000)));
-        checks.Add(Out.Check($"{keyB} bị xóa (set rỗng)", Redis($"EXISTS {keyB}") == "0"));
-
-        var after = await connA.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        checks.Add(Out.Check($"{a.UserName} JoinGroup lại → chỉ còn {a.UserName} online", after.Count == 1 && after[0] == a.UserId,
-            Names(after, a, b)));
-
-        Out.Info($"\nDemo lỗi (kết nối \"ma\"): giữ một kết nối của {b.UserName}, giết tiến trình chat-service, rồi:");
-        Out.Info($"  docker exec redis redis-cli SMEMBERS {keyB}   → ConnectionId cũ vẫn còn, {b.UserName} bị coi là online mãi");
-        return checks.All(x => x);
-
-        static bool HasEvent(ChatClient c, Guid userId, bool online)
-        {
-            lock (c.Presence) return c.Presence.Contains((userId, online));
-        }
-        static string Names(List<Guid> ids, LoggedInUser a, LoggedInUser b) =>
-            string.Join(", ", ids.Select(id => id == a.UserId ? a.UserName : id == b.UserId ? b.UserName : id.ToString()));
-    }
-
-    // Phần 8 – 2 bản chat-service. A nối THẲNG bản 1 (--a), B nối THẲNG bản 2 (--b), không qua Gateway/Nginx
-    // → chắc chắn 2 người nằm ở 2 tiến trình khác nhau. (REST đăng nhập, tạo nhóm vẫn đi qua Gateway.)
-    // - Trạng thái để ở Redis (bộ đếm seq, presence) → 2 bản tự dùng chung → luôn đúng.
-    // - Phát qua Clients.Group / OthersInGroup (ReceiveMessage, UserPresenceChanged): phòng SignalR nằm trong RAM
-    //   của từng bản → chỉ tới được bản kia khi có Redis Backplane (Bước 4). Chưa có → các dòng "giữa 2 bản" SAI.
+    // Redis Backplane: so sánh đẩy tin giữa hai replica. Presence dùng snapshot riêng.
     public static async Task<bool> Backplane(Api api, Options opt)
     {
         var a = await api.LoginAsync(opt.User, opt.Password);
@@ -531,17 +554,18 @@ static class Modes
         await using var connB = await ChatClient.ConnectAsync(opt.InstanceB, b);
         Out.Info($"{a.UserName} → bản 1 ({opt.InstanceA}), {b.UserName} → bản 2 ({opt.InstanceB})");
 
-        await connA.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        var onlineSeenByB = await connB.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
+        await connA.Hub.InvokeAsync("JoinGroup", groupId);
+        await connB.Hub.InvokeAsync("JoinGroup", groupId);
+        var onlineSeenByB = connB.Activity?.OnlineUserIds ?? [];
         var m1 = await connA.SendAsync(groupId, "Gửi từ bản 1");
         var m2 = await connB.SendAsync(groupId, "Gửi từ bản 2");
-        await Task.Delay(1000); // chờ ReceiveMessage / UserPresenceChanged tới nơi (nếu có)
+        await Task.Delay(1000); // chờ ReceiveMessage tới nơi
 
         Out.Info("\nDùng chung qua Redis (không cần backplane):");
         var checks = new List<bool>
         {
             Out.Check($"JoinGroup của {b.UserName} (bản 2) thấy {a.UserName} (bản 1) online",
-                onlineSeenByB.Contains(a.UserId), $"{onlineSeenByB.Count} người online"),
+                onlineSeenByB.Contains(a.UserId), $"{onlineSeenByB.Length} người online"),
             Out.Check("seq do Redis INCR cấp, liên tiếp dù 2 tin ở 2 bản", m2.SequenceNumber == m1.SequenceNumber + 1,
                 $"{m1.SequenceNumber}, {m2.SequenceNumber}"),
             Out.Check($"{a.UserName} nhận tin của chính mình (cùng bản 1)", Has(connA, m1.Id)),
@@ -553,23 +577,16 @@ static class Modes
         {
             Out.Check($"{b.UserName} (bản 2) nhận tin {a.UserName} gửi ở bản 1", Has(connB, m1.Id)),
             Out.Check($"{a.UserName} (bản 1) nhận tin {b.UserName} gửi ở bản 2", Has(connA, m2.Id)),
-            Out.Check($"{a.UserName} (bản 1) nhận UserPresenceChanged({b.UserName}, true) phát từ bản 2",
-                HasPresence(connA, b.UserId, true)),
         };
         if (!cross.All(x => x))
             Out.Warn("→ Mỗi bản chỉ phát cho các kết nối nằm trong RAM của chính nó. Tin vẫn được LƯU (xem DB), chỉ không được ĐẨY sang bản kia.");
-
-        Out.Info($"\nTin vẫn có trong DB: docker exec postgres psql -U chatapp -d chat_db -c \"select sequence_number, sender_name, content from messages where group_id = '{groupId}' order by sequence_number\"");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
         Out.Info("Log từng bản:       docker compose logs chat-service-1 | Select-String \"vào phòng\"   (tương tự chat-service-2)");
         return checks.Concat(cross).All(x => x);
 
         static bool Has(ChatClient c, Guid messageId)
         {
             lock (c.Received) return c.Received.Any(m => m.Id == messageId);
-        }
-        static bool HasPresence(ChatClient c, Guid userId, bool online)
-        {
-            lock (c.Presence) return c.Presence.Contains((userId, online));
         }
     }
 
@@ -678,12 +695,12 @@ static class Modes
             {
                 // Kết nối mới (ConnectionId mới, có thể ở bản khác) chưa ở trong phòng nào → phải vào lại phòng.
                 lock (reconnects) reconnects.Add(user.UserName);
-                await conn.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
+                await conn.Hub.InvokeAsync("JoinGroup", groupId);
                 Log($"{user.UserName}: ĐÃ nối lại và JoinGroup lại");
             };
         }
-        await connA.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
-        await connB.Hub.InvokeAsync<List<Guid>>("JoinGroup", groupId);
+        await connA.Hub.InvokeAsync("JoinGroup", groupId);
+        await connB.Hub.InvokeAsync("JoinGroup", groupId);
 
         var acked = new List<MessageDto>();
         int failedSends = 0;
@@ -744,10 +761,9 @@ static class Modes
             Out.Check($"{b.UserName} có đủ tin (realtime + lịch sử)", acked.All(m => realtime.Contains(m.Id) || historyIds.Contains(m.Id))),
         };
 
-        // Kết nối "ma": bản bị giết không kịp chạy OnDisconnectedAsync → ConnectionId cũ của A còn trong presence.
-        var presenceKey = $"presence:{a.UserId}";
-        Out.Info($"\n{presenceKey} còn {Redis($"SCARD {presenceKey}")} ConnectionId (A đang có 1 kết nối thật)"
-            + (opt.Action == "kill" ? " → thừa = kết nối \"ma\" do kill" : ""));
+        // Lease cũ có thể còn trong thời gian chờ reconnect, sẽ tự hết hạn sau 60s.
+        var presenceKey = $"presence:v2:sessions:{a.UserId}";
+        Out.Info($"\n{presenceKey} có {Redis($"ZCARD {presenceKey}")} lease (kể cả lease cũ đang chờ hết hạn)");
         Out.Info("Consumer Kafka:  docker compose logs chat-service-1 chat-service-2 | Select-String \"được giao\"");
         return checks.All(x => x);
     }
@@ -796,7 +812,7 @@ static class Modes
             checks.Add(Out.Check($"{c.UserName} (ngoài nhóm) → 403", await api.GetStatusAsync(c, url) == 403));
 
         Out.Info($"\nXem kế hoạch truy vấn (dùng index, không quét cả bảng):");
-        Out.Info($"  docker exec postgres psql -U chatapp -d chat_db -c \"explain analyze select * from messages where group_id = '{groupId}' and sequence_number < 71 order by sequence_number desc limit 50\"");
+        Out.Info("Xem Mongo: docker exec -it mongo-router mongosh chat_history");
         return checks.All(x => x);
 
         static string Range(List<MessageDto> page) =>
@@ -1342,6 +1358,11 @@ sealed class ChatClient : IAsyncDisposable
     public HubConnection Hub { get; }
     public List<MessageDto> Received { get; } = [];
     public List<(Guid UserId, bool IsOnline)> Presence { get; } = [];
+    public volatile ActivityDto? Activity;
+    public System.Collections.Concurrent.ConcurrentQueue<TypingDto> Typing { get; } = new();
+    public System.Collections.Concurrent.ConcurrentQueue<Guid> Revoked { get; } = new();
+    private readonly CancellationTokenSource heartbeatStop = new();
+    private Task heartbeatTask = Task.CompletedTask;
 
     ChatClient(HubConnection hub) => Hub = hub;
 
@@ -1350,7 +1371,7 @@ sealed class ChatClient : IAsyncDisposable
 
     // baseUrl: Gateway (mặc định) hoặc địa chỉ trực tiếp của một bản chat-service (chế độ backplane).
     // reconnect: bật WithAutomaticReconnect (thử lại sau 0, 2, 10, 30 giây) như Angular sẽ làm.
-    public static async Task<ChatClient> ConnectAsync(string baseUrl, LoggedInUser user, bool? negotiate = null, bool reconnect = false)
+    public static async Task<ChatClient> ConnectAsync(string baseUrl, LoggedInUser user, bool? negotiate = null, bool reconnect = false, bool autoHeartbeat = true)
     {
         var useNegotiate = negotiate ?? Negotiate;
         var builder = new HubConnectionBuilder();
@@ -1371,16 +1392,55 @@ sealed class ChatClient : IAsyncDisposable
             .Build();
         var client = new ChatClient(hub);
         hub.On<MessageDto>("ReceiveMessage", m => { lock (client.Received) client.Received.Add(m); });
-        hub.On<Guid, bool>("UserPresenceChanged", (u, online) => { lock (client.Presence) client.Presence.Add((u, online)); });
+        hub.On<ActivityDto>("PresenceSnapshot", p =>
+        {
+            var previous = client.Activity;
+            if (p.Known)
+            {
+                var old = previous?.Known == true ? previous.OnlineUserIds : [];
+                lock (client.Presence)
+                {
+                    foreach (var id in p.OnlineUserIds.Except(old)) client.Presence.Add((id, true));
+                    foreach (var id in old.Except(p.OnlineUserIds)) client.Presence.Add((id, false));
+                }
+            }
+            client.Activity = p;
+        });
+        hub.On<Guid, Guid, string, bool>("TypingChanged", (g, u, n, active) => client.Typing.Enqueue(new(g, u, active)));
+        hub.On<Guid>("GroupAccessRevoked", g => client.Revoked.Enqueue(g));
         await hub.StartAsync();
+        await hub.InvokeAsync("Heartbeat");
+        if (autoHeartbeat) client.heartbeatTask = client.PulseAsync();
         return client;
     }
 
     public Task<MessageDto> SendAsync(Guid groupId, string content, Guid? messageId = null) =>
         Hub.InvokeAsync<MessageDto>("SendMessage", messageId ?? Guid.CreateVersion7(), groupId, content);
 
-    public ValueTask DisposeAsync() => Hub.DisposeAsync();
+    private async Task PulseAsync()
+    {
+        try
+        {
+            while (!heartbeatStop.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Activity?.HeartbeatSeconds ?? 10), heartbeatStop.Token);
+                if (Hub.State == HubConnectionState.Connected)
+                    try { await Hub.InvokeAsync("Heartbeat", heartbeatStop.Token); } catch (Exception) when (!heartbeatStop.IsCancellationRequested) { }
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await heartbeatStop.CancelAsync();
+        await heartbeatTask;
+        await Hub.DisposeAsync();
+    }
 }
+
+record ActivityDto(bool Known, long Version, int HeartbeatSeconds, int LeaseSeconds, Guid[] OnlineUserIds, Guid[] FriendIds, Dictionary<Guid, int> OnlineCountsByGroup);
+record TypingDto(Guid GroupId, Guid UserId, bool IsTyping);
 
 // Một kết nối tới /hubs/notifications (Phần 9), ghi lại mọi UnreadCountChanged kèm thời điểm nhận.
 sealed class NotificationClient : IAsyncDisposable

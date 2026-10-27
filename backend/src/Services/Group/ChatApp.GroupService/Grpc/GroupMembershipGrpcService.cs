@@ -39,6 +39,23 @@ public class GroupMembershipGrpcService(GroupDbContext db) : GroupMembership.Gro
         return reply;
     }
 
+    // Một truy vấn theo lô, chỉ trả các nhóm mà user đang có quyền.
+    public override async Task<PresenceAudienceReply> GetPresenceAudience(PresenceAudienceRequest request, ServerCallContext context)
+    {
+        var userId = ParseGuid(request.UserId, "user_id");
+        var rows = await db.GroupMembers.AsNoTracking()
+            .Where(m => db.GroupMembers.Any(mine => mine.UserId == userId && mine.GroupId == m.GroupId))
+            .Select(m => new { m.GroupId, m.UserId }).ToListAsync(context.CancellationToken);
+        var reply = new PresenceAudienceReply();
+        foreach (var group in rows.GroupBy(m => m.GroupId))
+        {
+            var item = new PresenceAudienceGroup { GroupId = group.Key.ToString() };
+            item.UserIds.AddRange(group.Select(m => m.UserId.ToString()));
+            reply.Groups.Add(item);
+        }
+        return reply;
+    }
+
     // Protobuf không có kiểu GUID nên truyền chuỗi; chuỗi sai → status InvalidArgument (tương đương HTTP 400).
     private static Guid ParseGuid(string value, string field) =>
         Guid.TryParse(value, out var id)

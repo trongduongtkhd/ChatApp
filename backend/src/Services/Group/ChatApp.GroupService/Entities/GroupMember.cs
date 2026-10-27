@@ -3,7 +3,8 @@ namespace ChatApp.GroupService.Entities;
 public enum GroupRole
 {
     Owner,
-    Member
+    Member,
+    Admin
 }
 
 public class GroupMember

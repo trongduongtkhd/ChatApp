@@ -18,6 +18,7 @@ builder.Services.AddDbContext<GroupDbContext>(options =>
 
 // Cùng code kiểm tra JWT với Gateway và identity (ChatApp.Common), cùng secret trong kho chung.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+builder.Services.AddRemoteAccountAccess();
 
 // Kafka producer + OutboxPublisher (BackgroundService) đẩy outbox_messages của group_db lên Kafka.
 builder.Services.AddChatAppOutbox<GroupDbContext>(builder.Configuration);
@@ -66,6 +67,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseAuthentication();
+app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapGet("/", () => "ChatApp.GroupService is running");

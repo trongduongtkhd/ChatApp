@@ -37,7 +37,8 @@ public static class JwtAuthenticationExtensions
                     IssuerSigningKey = jwt.GetSigningKey(),
                     // Cho phép lệch đồng hồ giữa các máy tối đa 30 giây (mặc định là 5 phút).
                     ClockSkew = TimeSpan.FromSeconds(30),
-                    NameClaimType = ChatAppClaims.UserName
+                    NameClaimType = ChatAppClaims.UserName,
+                    RoleClaimType = AccountAccessRules.RoleClaim
                 };
 
                 // Trình duyệt không cho gắn header Authorization khi mở WebSocket,
@@ -58,7 +59,8 @@ public static class JwtAuthenticationExtensions
                 };
             });
 
-        services.AddAuthorization();
+        services.AddAuthorization(o => o.AddPolicy(AccountAccessRules.SystemAdmin,
+            p => p.RequireAuthenticatedUser().RequireRole(AccountAccessRules.SystemAdmin)));
         return services;
     }
 }

@@ -1,5 +1,6 @@
 namespace ChatApp.ChatService.Entities;
 
+// Entity của schema PostgreSQL cũ; runtime Mongo ánh xạ trong MongoChatStore.Document/ToDto.
 public class Message
 {
     // DO CLIENT SINH (Angular tạo GUID trước khi gửi), KHÔNG để server tự sinh.

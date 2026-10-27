@@ -1,6 +1,6 @@
 // Kiểu dữ liệu khớp DTO của group-service (Dtos/GroupDto.cs, MemberRequests.cs). JSON camelCase.
 
-export type GroupRole = 'Owner' | 'Member';
+export type GroupRole = 'Owner' | 'Admin' | 'Member';
 
 // GET /api/groups, POST /api/groups, PUT /api/groups/{id}
 export interface Group {
@@ -13,6 +13,7 @@ export interface Group {
   createdAt: string;
   updatedAt: string;
   isDirect: boolean; // Phần 11: chat riêng 2 người (tạo từ sự kiện kết bạn), name rỗng
+  requiresApproval: boolean;
   peer: Peer | null; // chat riêng: người kia; nhóm thường: null
 }
 
@@ -59,4 +60,12 @@ export interface UpdateGroupRequest {
   name: string;
   description: string | null;
   version: number;
+}
+
+export interface JoinRequest {
+  id: string; groupId: string; userId: string; userName: string | null; displayName: string | null;
+  requestedBy: string; status: string; createdAt: string; reviewedBy: string | null; reviewedAt: string | null;
+}
+export interface InvitePreview {
+  groupId: string; name: string; description: string | null; requiresApproval: boolean; isMember: boolean; requestStatus: string | null;
 }

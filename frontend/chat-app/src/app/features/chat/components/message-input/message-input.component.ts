@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild, OnDestroy } from '@angular/core';
 
 // Ô nhập tin (Main.dc.html). Chỉ lo nhập + bấm Gửi; sinh messageId và gửi do chat-window làm.
 // KHÔNG khóa ô nhập khi đang kết nối lại: tin vẫn nhận, nằm chờ "Đang gửi…" tới khi có kết nối.
@@ -10,14 +10,31 @@ import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Ou
   `],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class MessageInputComponent {
+export class MessageInputComponent implements OnDestroy {
   // Thông báo từ server (HubException), hiện nguyên văn dưới ô nhập, màu --ink-muted (UI.md).
   @Input() error: string | null = null;
   @Output() readonly send = new EventEmitter<string>();
+  @Output() readonly typing = new EventEmitter<boolean>();
+  @Output() readonly textChange = new EventEmitter<string>();
+  private idleTimer?: ReturnType<typeof setTimeout>;
+
+  onInput(): void {
+    this.textChange.emit(this.text);
+    clearTimeout(this.idleTimer);
+    this.typing.emit(!!this.text.trim());
+    this.idleTimer = setTimeout(() => this.stopTyping(), 2500);
+  }
+
+  stopTyping(): void {
+    clearTimeout(this.idleTimer);
+    this.typing.emit(false);
+  }
+
+  ngOnDestroy(): void { this.stopTyping(); }
 
   @ViewChild('box', { static: true }) box!: ElementRef<HTMLInputElement>;
 
-  text = '';
+  @Input() text = '';
 
   submit(): void {
     const content = this.text.trim();
@@ -25,7 +42,9 @@ export class MessageInputComponent {
       return;
     }
     this.send.emit(content);
+    this.stopTyping();
     this.text = '';
+    this.textChange.emit('');
     this.box.nativeElement.focus();
   }
 

@@ -30,6 +30,8 @@ public class JwtTokenService(IOptions<JwtOptions> options)
                 [ChatAppClaims.UserId] = user.Id.ToString(),
                 [ChatAppClaims.UserName] = user.UserName,
                 [ChatAppClaims.DisplayName] = user.DisplayName,
+                [AccountAccessRules.RoleClaim] = user.SystemRole,
+                [AccountAccessRules.VersionClaim] = user.AuthVersion,
                 // jti: định danh riêng của từng token.
                 [JwtRegisteredClaimNames.Jti] = Guid.NewGuid().ToString()
             },

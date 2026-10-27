@@ -5,10 +5,11 @@ using ChatApp.GroupService.Dtos;
 using ChatApp.GroupService.Entities;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
+using ChatApp.Common.Auth;
 
 namespace ChatApp.GroupService.Services;
 
-public class GroupManagementService(GroupDbContext db)
+public partial class GroupManagementService(GroupDbContext db, IAccountAccessReader accounts)
 {
     // Mã lỗi PostgreSQL khi vi phạm unique/primary key.
     private const string UniqueViolation = "23505";
@@ -100,7 +101,8 @@ public class GroupManagementService(GroupDbContext db)
 
     public async Task<ServiceResult<GroupDto>> UpdateAsync(Guid currentUserId, Guid groupId, UpdateGroupRequest request, CancellationToken ct)
     {
-        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var group = await LockGroupAsync(groupId, ct);
         if (group is null)
             return ServiceResult<GroupDto>.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
         if (group.IsDirect)
@@ -128,12 +130,14 @@ public class GroupManagementService(GroupDbContext db)
         }
 
         // Sau SaveChanges, Npgsql đọc lại xmin mới vào group.Version → client dùng cho lần sửa sau.
+        await tx.CommitAsync(ct);
         return ServiceResult<GroupDto>.Ok(ToDto(group, GroupRole.Owner));
     }
 
     public async Task<ServiceResult> DeleteAsync(Guid currentUserId, Guid groupId, CancellationToken ct)
     {
-        var group = await db.Groups.FirstOrDefaultAsync(g => g.Id == groupId, ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var group = await LockGroupAsync(groupId, ct);
         if (group is null)
             return ServiceResult.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
         if (group.IsDirect)
@@ -154,75 +158,42 @@ public class GroupManagementService(GroupDbContext db)
         // DELETE groups + N dòng outbox member-removed trong cùng một transaction.
         db.Groups.Remove(group);
         await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return ServiceResult.Ok();
     }
 
-    public async Task<ServiceResult<MemberDto>> AddMemberAsync(Guid currentUserId, Guid groupId, Guid userId, CancellationToken ct)
+    public async Task<ServiceResult<MembershipResult>> AddMemberAsync(Guid currentUserId, Guid groupId, Guid userId, CancellationToken ct)
     {
-        var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
-        if (group is null)
-            return ServiceResult<MemberDto>.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
-        if (group.IsDirect)
-            return ServiceResult<MemberDto>.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
-        if (group.OwnerId != currentUserId)
-            return ServiceResult<MemberDto>.Fail(ServiceError.Forbidden, "Chỉ Owner được thêm thành viên");
-
-        // Không có FK sang identity_db → tự kiểm tra user có thật qua bản sao user_snapshots.
-        var snapshot = await db.UserSnapshots.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == userId, ct);
-        if (snapshot is null)
-            return ServiceResult<MemberDto>.Fail(ServiceError.NotFound, "User không tồn tại hoặc chưa được đồng bộ sang group-service");
-
-        if (await db.GroupMembers.AnyAsync(m => m.GroupId == groupId && m.UserId == userId, ct))
-            return ServiceResult<MemberDto>.Fail(ServiceError.Conflict, "User đã là thành viên nhóm");
-
-        var member = new GroupMember { GroupId = groupId, UserId = userId, Role = GroupRole.Member };
-        db.GroupMembers.Add(member);
-        AddMemberAddedEvent(groupId, userId, GroupRole.Member);
-        try
-        {
-            await db.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: UniqueViolation })
-        {
-            // 2 request thêm cùng user đến cùng lúc: PK (group_id, user_id) chỉ cho một cái thành công.
-            // Bên thua: transaction bị hủy → dòng outbox cũng không được lưu → không phát member-added trùng.
-            return ServiceResult<MemberDto>.Fail(ServiceError.Conflict, "User đã là thành viên nhóm");
-        }
-
-        return ServiceResult<MemberDto>.Ok(
-            new MemberDto(userId, snapshot.UserName, snapshot.DisplayName, member.Role.ToString(), member.JoinedAt));
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var group = await LockGroupAsync(groupId, ct);
+        var error = await AccessErrorAsync(group, currentUserId, false, ct);
+        if (error is not null) return ServiceResult<MembershipResult>.Fail(error.Error, error.Message!);
+        var role = await RoleAsync(groupId, currentUserId, ct);
+        var result = await JoinCoreAsync(group!, userId, currentUserId, role is GroupRole.Owner or GroupRole.Admin, ct);
+        if (result.IsSuccess) { await db.SaveChangesAsync(ct); await tx.CommitAsync(ct); }
+        return result;
     }
 
     public async Task<ServiceResult> RemoveMemberAsync(Guid currentUserId, Guid groupId, Guid userId, CancellationToken ct)
     {
-        var group = await db.Groups.AsNoTracking().FirstOrDefaultAsync(g => g.Id == groupId, ct);
-        if (group is null)
-            return ServiceResult.Fail(ServiceError.NotFound, "Không tìm thấy nhóm");
-        // Cả "tự rời" chat riêng cũng chặn: muốn thôi thì hủy kết bạn (identity) → sự kiện Removed gỡ cả 2.
-        if (group.IsDirect)
-            return ServiceResult.Fail(ServiceError.BadRequest, DirectChatNotAllowed);
-
-        // Owner xóa người khác, hoặc chính người đó tự rời nhóm.
-        var isOwner = group.OwnerId == currentUserId;
-        var isSelf = userId == currentUserId;
-        if (!isOwner && !isSelf)
-            return ServiceResult.Fail(ServiceError.Forbidden, "Chỉ Owner hoặc chính thành viên đó được xóa");
-
-        if (userId == group.OwnerId)
-            return ServiceResult.Fail(ServiceError.BadRequest, "Owner không thể rời nhóm, hãy xóa nhóm");
-
-        var member = await db.GroupMembers.FirstOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
-        if (member is null)
-            return ServiceResult.Fail(ServiceError.NotFound, "User không phải thành viên nhóm");
-
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        var group = await LockGroupAsync(groupId, ct);
+        var error = await AccessErrorAsync(group, currentUserId, false, ct);
+        if (error is not null) return error;
+        var actor = await RoleAsync(groupId, currentUserId, ct);
+        var member = await db.GroupMembers.SingleOrDefaultAsync(m => m.GroupId == groupId && m.UserId == userId, ct);
+        if (member is null) return ServiceResult.Fail(ServiceError.NotFound, "User không phải thành viên nhóm");
+        if (member.Role == GroupRole.Owner) return ServiceResult.Fail(ServiceError.BadRequest, "Trưởng nhóm cần chuyển quyền trước khi rời nhóm.");
+        if (currentUserId != userId && actor != GroupRole.Owner && !(actor == GroupRole.Admin && member.Role == GroupRole.Member))
+            return ServiceResult.Fail(ServiceError.Forbidden, "Bạn không có quyền xóa thành viên này.");
         db.GroupMembers.Remove(member);
         AddMemberRemovedEvent(groupId, userId);
+        Audit(group!, currentUserId, userId, currentUserId == userId ? "Left" : "MemberRemoved");
         await db.SaveChangesAsync(ct);
-
+        await tx.CommitAsync(ct);
         return ServiceResult.Ok();
     }
-
     public async Task<IReadOnlyList<UserSnapshotDto>> SearchUsersAsync(string? q, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(q))
@@ -252,5 +223,5 @@ public class GroupManagementService(GroupDbContext db)
 
     // MyRole lấy từ group_members.Role (không suy từ OwnerId) → chat riêng cả 2 đều "Member".
     private static GroupDto ToDto(Group g, GroupRole myRole, PeerDto? peer = null) =>
-        new(g.Id, g.Name, g.Description, g.OwnerId, myRole.ToString(), g.Version, g.CreatedAt, g.UpdatedAt, g.IsDirect, peer);
+        new(g.Id, g.Name, g.Description, g.OwnerId, myRole.ToString(), g.Version, g.CreatedAt, g.UpdatedAt, g.IsDirect, peer, g.RequiresApproval);
 }

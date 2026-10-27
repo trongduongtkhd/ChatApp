@@ -1,8 +1,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component, OnDestroy } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { EMPTY, forkJoin, Observable, of, Subject, Subscription, throwError } from 'rxjs';
-import { auditTime, catchError, expand, map, reduce, startWith, switchMap, tap } from 'rxjs/operators';
+import { EMPTY, forkJoin, Observable, of, Subject, Subscription, throwError, timer } from 'rxjs';
+import { auditTime, catchError, expand, map, mergeMap, reduce, retryWhen, startWith, switchMap, tap } from 'rxjs/operators';
 import { GroupDetail, groupTitle } from '../../../../core/models/group';
 import { Message, PendingMessage } from '../../../../core/models/message';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -11,6 +11,7 @@ import { uuidv7 } from '../../../../core/utils/guid';
 import { GroupApiService } from '../../../../core/services/group-api.service';
 import { MessageApiService } from '../../../../core/services/message-api.service';
 import { NotificationApiService } from '../../../../core/services/notification-api.service';
+import { vietnamToday, mondayFor, inChatWeek } from '../../../../core/utils/chat-week';
 
 const PAGE_SIZE = 50;
 const MAX_CATCHUP_PAGES = 10; // lấy bù tối đa 500 tin sau một lần mất kết nối
@@ -27,6 +28,8 @@ type ViewState = 'loading' | 'ready' | 'forbidden' | 'unavailable';
     .cw-col { flex: 999 1 420px; min-width: 0; display: flex; flex-direction: column; }
     app-member-panel { flex: 1 1 300px; max-width: 340px; min-width: 0; display: flex; }
     .ca-iconbtn.on { background: var(--brand-soft); color: var(--brand); }
+    #chat-week-date { font: inherit; color: var(--ink); background: var(--surface-hover); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 138px; }
+    #chat-week-date:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   `]
 })
 export class ChatWindowComponent implements OnDestroy {
@@ -40,13 +43,39 @@ export class ChatWindowComponent implements OnDestroy {
   reachedStart = false;
 
   onlineIds: ReadonlySet<string> = new Set();
+  presenceKnown = false;
+  typingNames: string[] = [];
   sendError: string | null = null;
   readonly banner$ = this.hub.banner$;
   showMembers = false;  // panel thành viên (giữ nguyên khi đổi nhóm, như Messenger)
   editing = false;      // hộp thoại sửa nhóm
+  weekDate = vietnamToday();
+  selectedWeek: string | null = null;
+  weekError: string | null = null;
+
+  selectWeek(): void {
+    const monday = mondayFor(this.weekDate);
+    if (!monday) { this.weekError = 'Chọn một ngày hợp lệ.'; return; }
+    this.weekError = null;
+    this.selectedWeek = monday;
+    this.hub.setTyping(this.groupId, false);
+    this.retry();
+  }
+
+  latest(): void { this.selectedWeek = null; this.weekError = null; this.retry(); }
+
+  get weekLabel(): string {
+    if (!this.selectedWeek) return '';
+    const end = new Date(this.selectedWeek + 'T00:00:00Z');
+    end.setUTCDate(end.getUTCDate() + 6);
+    return this.selectedWeek.split('-').reverse().join('/') + ' – ' + end.toISOString().slice(0, 10).split('-').reverse().join('/');
+  }
 
   // Tin đang chờ theo TỪNG nhóm: đổi sang nhóm khác rồi quay lại vẫn thấy tin chờ / tin lỗi của nhóm đó.
   private readonly pendingByGroup = new Map<string, PendingMessage[]>();
+  private readonly drafts = new Map<string, string>();
+  get draft(): string { return this.drafts.get(this.groupId) || ''; }
+  set draft(value: string) { this.drafts.set(this.groupId, value); }
   private readonly read$ = new Subject<void>();
   private readonly lastMarked = new Map<string, number>(); // seq đã gửi "đã đọc" gần nhất, theo nhóm
   private groupId = '';
@@ -54,6 +83,7 @@ export class ChatWindowComponent implements OnDestroy {
   private readonly sub = new Subscription();
   private olderSub?: Subscription;
   private catchUpSub?: Subscription;
+  private recoveringHistory = false;
 
   constructor(
     route: ActivatedRoute,
@@ -81,6 +111,13 @@ export class ChatWindowComponent implements OnDestroy {
     this.sub.add(hub.presence$.subscribe(p => {
       this.onlineIds = p && p.groupId === this.groupId ? p.online : new Set();
     }));
+    this.sub.add(hub.activity$.subscribe(p => this.presenceKnown = !!p?.known));
+    this.sub.add(hub.typing$.subscribe(items => {
+      this.typingNames = items.filter(t => t.groupId === this.groupId).map(t => t.displayName || 'Người dùng');
+    }));
+    this.sub.add(hub.revoked$.subscribe(id => {
+      if (id === this.groupId) this.onGroupGone();
+    }));
 
     // Đánh dấu đã đọc, GOM LÔ: auditTime(500) – trong 500 ms có 20 tin đến thì chỉ gửi 1 request (seq lớn nhất).
     this.sub.add(this.read$.pipe(auditTime(500)).subscribe(() => this.markRead()));
@@ -91,6 +128,7 @@ export class ChatWindowComponent implements OnDestroy {
       if (this.state === 'ready') {
         this.catchUp();
       } else if (this.state === 'unavailable') {
+        this.recoveringHistory = true;
         this.retry(); // lúc nãy mở nhóm thất bại vì hệ thống gián đoạn → có kết nối rồi thì tự mở lại
       }
     }));
@@ -105,6 +143,10 @@ export class ChatWindowComponent implements OnDestroy {
 
   get memberCount(): number {
     return this.detail?.members.length ?? 0;
+  }
+
+  get otherOnlineCount(): number {
+    return this.hub.activity?.known ? this.hub.activity.onlineCountsByGroup[this.groupId] || 0 : 0;
   }
 
   // Chat riêng 2 người (Phần 11). Lúc bị hủy kết bạn thì không còn chi tiết (server 403) → hỏi tập mã chat riêng
@@ -125,12 +167,14 @@ export class ChatWindowComponent implements OnDestroy {
   }
 
   get pending(): PendingMessage[] {
-    return this.pendingByGroup.get(this.groupId) ?? [];
+    return this.selectedWeek ? [] : this.pendingByGroup.get(this.groupId) ?? [];
   }
 
   // Bấm Gửi: sinh messageId TRƯỚC, hiện ngay bong bóng mờ (optimistic UI), rồi mới gửi.
   // Id có trước nên dù gửi lại bao nhiêu lần, server vẫn nhận ra là CÙNG một tin.
   send(content: string): void {
+    if (this.selectedWeek) return;
+    this.hub.setTyping(this.groupId, false);
     const p: PendingMessage = { id: uuidv7(), groupId: this.groupId, content, status: 'sending' };
     this.setPending(p.groupId, [...this.pending, p]);
     this.deliver(p);
@@ -152,6 +196,8 @@ export class ChatWindowComponent implements OnDestroy {
   retryConnection(): void {
     this.hub.retryNow();
   }
+
+  setTyping(active: boolean): void { this.hub.setTyping(this.groupId, active); }
 
   // Thêm / xóa thành viên → lấy lại chi tiết (số thành viên, danh sách).
   // 403/404: mình vừa bị xóa khỏi nhóm hoặc nhóm vừa bị xóa (do người khác) → màn "không còn là thành viên".
@@ -193,10 +239,12 @@ export class ChatWindowComponent implements OnDestroy {
       return;
     }
     const groupId = this.groupId;
+    const week = this.selectedWeek;
     this.loadingOlder = true;
     this.olderError = false;
-    this.olderSub = this.messageApi.history(groupId, this.messages[0].sequenceNumber, PAGE_SIZE).subscribe({
+    this.olderSub = this.messageApi.history(groupId, this.messages[0].sequenceNumber, PAGE_SIZE, week || undefined).subscribe({
       next: page => {
+        if (groupId !== this.groupId || week !== this.selectedWeek) return;
         this.loadingOlder = false;
         this.messages = mergeBySeq(this.messages, page);
         // Ít hơn 1 trang (kể cả rỗng) = đã tới tin đầu tiên, khỏi gọi thêm một lần chỉ để nhận [].
@@ -217,6 +265,7 @@ export class ChatWindowComponent implements OnDestroy {
   // → lấy trang MỚI NHẤT, rồi lùi tiếp tới khi chạm seq lớn nhất đang có (known), tối đa MAX_CATCHUP_PAGES trang.
   // Gộp bằng mergeBySeq → tin đã có (hoặc vừa tới qua SignalR) không bị lặp.
   private catchUp(): void {
+    if (this.selectedWeek) { this.recoveringHistory = true; this.retry(); return; }
     const groupId = this.groupId;
     const known = this.messages.length ? this.messages[this.messages.length - 1].sequenceNumber : null;
     const before = this.messages.length;
@@ -253,7 +302,7 @@ export class ChatWindowComponent implements OnDestroy {
   private markRead(): void {
     const groupId = this.groupId;
     const last = this.messages[this.messages.length - 1];
-    if (this.state !== 'ready' || !last || last.sequenceNumber <= (this.lastMarked.get(groupId) ?? 0)) {
+    if (this.selectedWeek || this.state !== 'ready' || !last || last.sequenceNumber <= (this.lastMarked.get(groupId) ?? 0)) {
       return;
     }
     this.lastMarked.set(groupId, last.sequenceNumber);
@@ -291,7 +340,7 @@ export class ChatWindowComponent implements OnDestroy {
     if (list?.some(p => p.id === m.id)) {
       this.setPending(m.groupId, list.filter(p => p.id !== m.id));
     }
-    if (m.groupId === this.groupId) {
+    if (m.groupId === this.groupId && (!this.selectedWeek || inChatWeek(m.createdAt, this.selectedWeek))) {
       this.messages = mergeBySeq(this.messages, [m]);
       this.read$.next(); // đang mở nhóm này → tin mới coi như đã đọc (chấm đỏ không hiện cho nhóm đang xem)
     }
@@ -308,8 +357,11 @@ export class ChatWindowComponent implements OnDestroy {
 
   // Mở một nhóm: lấy SONG SONG chi tiết (group-service) và trang tin mới nhất (chat-service).
   private open(groupId: string): Observable<unknown> {
+    const recovering = this.recoveringHistory;
+    this.recoveringHistory = false;
     this.olderSub?.unsubscribe();
     this.catchUpSub?.unsubscribe();
+    if (groupId !== this.groupId) { this.selectedWeek = null; this.weekError = null; this.weekDate = vietnamToday(); }
     this.groupId = groupId;
     this.state = 'loading';
     this.detail = null;
@@ -329,8 +381,13 @@ export class ChatWindowComponent implements OnDestroy {
       // trả lịch sử thì vẫn cho đọc tin (không bắt cả màn hình chết theo một service phụ).
       detail: this.groupApi.detail(groupId).pipe(catchError((err: HttpErrorResponse) =>
         isForbidden(err) ? throwError(err) : of(null))),
-      history: this.messageApi.history(groupId, undefined, PAGE_SIZE)
+      history: this.messageApi.history(groupId, undefined, PAGE_SIZE, this.selectedWeek || undefined)
     }).pipe(
+      // Hub có thể nối lại qua replica 1 trong khi REST đang chạm replica 2 vừa restart.
+      // Chỉ retry lỗi tạm thời khi phục hồi; switchMap hủy cả timer khi đổi nhóm/tuần.
+      retryWhen(failures => failures.pipe(mergeMap((err: HttpErrorResponse, attempt) =>
+        recovering && (err.status === 0 || err.status >= 500) && attempt < 4
+          ? timer([1000, 2000, 4000, 8000][attempt]) : throwError(err)))),
       tap(({ detail, history }) => {
         this.detail = detail;
         this.messages = mergeBySeq(this.messages, history); // giữ tin realtime đã đến trong lúc chờ

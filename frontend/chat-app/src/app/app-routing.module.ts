@@ -2,11 +2,15 @@ import { NgModule } from '@angular/core';
 import { RouterModule, Routes } from '@angular/router';
 import { AuthGuard } from './core/guards/auth.guard';
 import { GuestGuard } from './core/guards/guest.guard';
+import { AdminGuard } from './core/guards/admin.guard';
 
 // LAZY LOADING: mỗi feature là một file JS riêng (chunk), chỉ tải khi người dùng vào đường dẫn đó.
 // Mở /auth/login thì trình duyệt chưa phải tải code khung chat, và ngược lại.
 const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'chat' },
+  { path: 'admin', canLoad: [AdminGuard], canActivate: [AdminGuard],
+    loadChildren: () => import('./features/admin/admin.module').then(m => m.AdminModule) },
+  { path: 'groups', loadChildren: () => import('./features/group-join/group-join.module').then(m => m.GroupJoinModule) },
   {
     path: 'auth',
     canActivate: [GuestGuard],

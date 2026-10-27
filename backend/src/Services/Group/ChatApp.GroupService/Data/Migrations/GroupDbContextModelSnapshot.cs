@@ -96,6 +96,11 @@ namespace ChatApp.GroupService.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("friendship_revision");
 
+                    b.Property<string>("InviteTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("invite_token_hash");
+
                     b.Property<bool>("IsDirect")
                         .HasColumnType("boolean")
                         .HasColumnName("is_direct");
@@ -110,6 +115,10 @@ namespace ChatApp.GroupService.Data.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("owner_id");
 
+                    b.Property<bool>("RequiresApproval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("requires_approval");
+
                     b.Property<DateTimeOffset>("UpdatedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("updated_at");
@@ -123,7 +132,104 @@ namespace ChatApp.GroupService.Data.Migrations
                     b.HasKey("Id")
                         .HasName("pk_groups");
 
+                    b.HasIndex("InviteTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_groups_invite_token_hash")
+                        .HasFilter("invite_token_hash IS NOT NULL");
+
                     b.ToTable("groups", (string)null);
+                });
+
+            modelBuilder.Entity("ChatApp.GroupService.Entities.GroupAudit", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("ActorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid?>("TargetId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("target_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_group_audits");
+
+                    b.HasIndex("GroupId", "CreatedAt")
+                        .HasDatabaseName("ix_group_audits_group_id_created_at");
+
+                    b.ToTable("group_audits", (string)null);
+                });
+
+            modelBuilder.Entity("ChatApp.GroupService.Entities.GroupJoinRequest", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("GroupId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("group_id");
+
+                    b.Property<Guid>("RequestedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("requested_by");
+
+                    b.Property<DateTimeOffset?>("ReviewedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("reviewed_at");
+
+                    b.Property<Guid?>("ReviewedBy")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reviewed_by");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_group_join_requests");
+
+                    b.HasIndex("GroupId", "UserId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_group_join_requests_group_id_user_id")
+                        .HasFilter("status = 'Pending'");
+
+                    b.HasIndex("GroupId", "Status", "CreatedAt")
+                        .HasDatabaseName("ix_group_join_requests_group_id_status_created_at");
+
+                    b.ToTable("group_join_requests", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_join_request_status", "status IN ('Pending','Approved','Rejected','Cancelled')");
+                        });
                 });
 
             modelBuilder.Entity("ChatApp.GroupService.Entities.GroupMember", b =>
@@ -149,10 +255,18 @@ namespace ChatApp.GroupService.Data.Migrations
                     b.HasKey("GroupId", "UserId")
                         .HasName("pk_group_members");
 
+                    b.HasIndex("GroupId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_group_single_owner")
+                        .HasFilter("role = 'Owner'");
+
                     b.HasIndex("UserId")
                         .HasDatabaseName("ix_group_members_user_id");
 
-                    b.ToTable("group_members", (string)null);
+                    b.ToTable("group_members", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_group_members_role", "role IN ('Owner', 'Admin', 'Member')");
+                        });
                 });
 
             modelBuilder.Entity("ChatApp.GroupService.Entities.UserSnapshot", b =>
@@ -177,6 +291,16 @@ namespace ChatApp.GroupService.Data.Migrations
                         .HasName("pk_user_snapshots");
 
                     b.ToTable("user_snapshots", (string)null);
+                });
+
+            modelBuilder.Entity("ChatApp.GroupService.Entities.GroupJoinRequest", b =>
+                {
+                    b.HasOne("ChatApp.GroupService.Entities.Group", null)
+                        .WithMany()
+                        .HasForeignKey("GroupId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_group_join_requests_groups_group_id");
                 });
 
             modelBuilder.Entity("ChatApp.GroupService.Entities.GroupMember", b =>

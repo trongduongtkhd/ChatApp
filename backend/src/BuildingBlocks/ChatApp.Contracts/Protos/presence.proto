@@ -1,0 +1,19 @@
+syntax = "proto3";
+option csharp_namespace = "ChatApp.Contracts.Grpc";
+package presence;
+
+// Nội bộ: chỉ Chat Service lấy user_id/connection_id từ phiên SignalR đã xác thực.
+service Presence {
+  rpc Heartbeat (PresenceSession) returns (PresenceSettings);
+  rpc EndSession (PresenceSession) returns (PresenceEmpty);
+  rpc GetOnline (PresenceUsers) returns (PresenceUsers);
+}
+message PresenceSession { string user_id = 1; string connection_id = 2; }
+message PresenceSettings { int32 heartbeat_seconds = 1; int32 lease_seconds = 2; }
+message PresenceUsers { repeated string user_ids = 1; }
+message PresenceEmpty {}
+
+service FriendPresence {
+  rpc GetFriends (FriendPresenceRequest) returns (PresenceUsers);
+}
+message FriendPresenceRequest { string user_id = 1; }

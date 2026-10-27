@@ -10,26 +10,28 @@ export interface GroupListItem {
   unread: number;
 }
 
-export type GroupListTab = 'all' | 'unread' | 'groups';
+export type GroupListTab = 'all' | 'unread' | 'groups' | 'online';
 
 // Danh sách chat ở thanh bên: ô tìm kiếm + 3 tab + các dòng. Chỉ HIỂN THỊ: dữ liệu do ChatLayout nạp và truyền vào.
 @Component({
   selector: 'app-group-list',
   templateUrl: './group-list.component.html',
-  styles: [':host { display: flex; flex-direction: column; min-height: 0; flex: 1; }'],
+  styles: [':host { display: flex; flex-direction: column; min-height: 0; flex: 1; } .ca-tabs { gap: 2px; padding-left: 8px; padding-right: 8px; } .ca-tab { padding-left: 8px; padding-right: 8px; white-space: nowrap; }'],
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class GroupListComponent {
   @Input() items: GroupListItem[] = [];
   @Input() myId = '';
   @Input() now = Date.now();
-  @Input() onlineGroupId: string | null = null;
+  @Input() onlineCounts: { [groupId: string]: number } = {};
+  @Input() presenceKnown = false;
 
   readonly tabs: { id: GroupListTab; label: string }[] = [
     { id: 'all', label: 'Tất cả' },
     { id: 'unread', label: 'Chưa đọc' },
     // Nhóm = bỏ chat riêng 2 người (isDirect, Phần 11).
-    { id: 'groups', label: 'Nhóm' }
+    { id: 'groups', label: 'Nhóm' },
+    { id: 'online', label: 'Hoạt động' }
   ];
   readonly titleOf = groupTitle;
   tab: GroupListTab = 'all';
@@ -52,6 +54,7 @@ export class GroupListComponent {
     return this.items.filter(i =>
       (this.tab !== 'unread' || i.unread > 0 || i.group.id === this.keepId) &&
       (this.tab !== 'groups' || !i.group.isDirect) &&
+      (this.tab !== 'online' || (this.presenceKnown && this.onlineCounts[i.group.id] > 0)) &&
       (!q || normalize(groupTitle(i.group)).includes(q)));
   }
 

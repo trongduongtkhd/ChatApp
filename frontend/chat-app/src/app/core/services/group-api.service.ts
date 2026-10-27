@@ -3,7 +3,7 @@ import { Injectable } from '@angular/core';
 import { Observable, of, Subject, timer } from 'rxjs';
 import { catchError, concatMap, last, map, take, takeWhile, tap } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
-import { CreateGroupRequest, Group, GroupDetail, UpdateGroupRequest, UserSnapshot } from '../models/group';
+import { CreateGroupRequest, Group, GroupDetail, InvitePreview, JoinRequest, Member, UpdateGroupRequest, UserSnapshot } from '../models/group';
 
 // REST /api/groups (group-service, qua Gateway). Component không gọi HttpClient trực tiếp mà gọi qua đây.
 // Token do JwtInterceptor tự gắn; 401 do ErrorInterceptor xử lý; lỗi khác (403/404/409) ném về nơi gọi.
@@ -80,9 +80,31 @@ export class GroupApiService {
     return this.http.get<UserSnapshot[]>(`${this.base}/users/search`, { params: new HttpParams().set('q', q) });
   }
 
-  addMember(groupId: string, userId: string): Observable<unknown> {
-    return this.http.post(`${this.base}/${groupId}/members`, { userId });
+  addMember(groupId: string, userId: string): Observable<Member | JoinRequest> {
+    return this.http.post<Member | JoinRequest>(`${this.base}/${groupId}/members`, { userId });
   }
+
+  setRole(groupId: string, userId: string, role: string, version: number): Observable<void> {
+    return this.http.put<void>(`${this.base}/${groupId}/members/${userId}/role`, { role, version }).pipe(tap(() => this.notifyChanged()));
+  }
+  transferOwner(groupId: string, userId: string, version: number): Observable<void> {
+    return this.http.put<void>(`${this.base}/${groupId}/owner`, { userId, version }).pipe(tap(() => this.notifyChanged()));
+  }
+  setApproval(groupId: string, requiresApproval: boolean, version: number): Observable<void> {
+    return this.http.put<void>(`${this.base}/${groupId}/approval`, { requiresApproval, version });
+  }
+  requests(groupId: string): Observable<JoinRequest[]> { return this.http.get<JoinRequest[]>(`${this.base}/${groupId}/join-requests`); }
+  decide(groupId: string, requestId: string, approve: boolean): Observable<void> {
+    return this.http.put<void>(`${this.base}/${groupId}/join-requests/${requestId}`, { approve }).pipe(tap(() => this.notifyChanged()));
+  }
+  rotateInvite(groupId: string, version: number): Observable<{ token: string }> {
+    return this.http.post<{ token: string }>(`${this.base}/${groupId}/invite`, { version });
+  }
+  previewInvite(token: string): Observable<InvitePreview> { return this.http.get<InvitePreview>(`${this.base}/invites/${token}`); }
+  joinInvite(token: string): Observable<Member | JoinRequest> {
+    return this.http.post<Member | JoinRequest>(`${this.base}/invites/${token}/join`, {}).pipe(tap(() => this.notifyChanged()));
+  }
+  cancelRequest(groupId: string): Observable<void> { return this.http.delete<void>(`${this.base}/${groupId}/join-requests/mine`); }
 
   // Owner xóa người khác, hoặc chính mình tự rời nhóm.
   removeMember(groupId: string, userId: string): Observable<void> {

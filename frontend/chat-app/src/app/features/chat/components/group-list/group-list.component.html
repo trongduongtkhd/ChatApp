@@ -17,11 +17,14 @@
      class="ca-item" [class.unread]="item.unread > 0 && !rla.isActive"
      [routerLink]="['/chat', item.group.id]" routerLinkActive="active" #rla="routerLinkActive"
      [attr.aria-current]="rla.isActive ? 'page' : null" (click)="onOpen(item)">
-    <app-avatar [name]="titleOf(item.group)" [kind]="item.group.isDirect ? 'user' : 'group'" [online]="item.group.id === onlineGroupId"></app-avatar>
+    <app-avatar [name]="titleOf(item.group)" [kind]="item.group.isDirect ? 'user' : 'group'" [online]="presenceKnown && onlineCounts[item.group.id] > 0"></app-avatar>
     <span class="txt">
       <span class="row">
         <span class="name">{{ titleOf(item.group) }}</span>
         <span *ngIf="item.last" class="time">{{ item.last.createdAt | listTime: now }}</span>
+      </span>
+      <span class="ca-meta" *ngIf="presenceKnown && onlineCounts[item.group.id] > 0">
+        {{ item.group.isDirect ? 'Đang hoạt động' : onlineCounts[item.group.id] + ' thành viên khác đang online' }}
       </span>
       <span class="row">
         <span class="prev" [ngSwitch]="item.last === undefined ? 'loading' : item.last === null ? 'none' : 'msg'">
@@ -29,7 +32,7 @@
           <ng-container *ngSwitchCase="'none'">Chưa có tin nhắn</ng-container>
           <ng-container *ngSwitchCase="'msg'">{{ item.last!.senderId === myId ? 'Bạn' : item.last!.senderName }}: {{ item.last!.content }}</ng-container>
         </span>
-        <app-unread-badge *ngIf="!rla.isActive" [count]="item.unread"></app-unread-badge>
+        <app-unread-badge [count]="item.unread"></app-unread-badge>
       </span>
     </span>
   </a>
@@ -37,6 +40,9 @@
   <div *ngIf="!filtered.length" class="ca-list-empty">
     <ng-container *ngIf="query; else tabEmpty">Không có cuộc trò chuyện nào khớp “{{ query }}”.</ng-container>
     <ng-template #tabEmpty>
+      <ng-container *ngIf="tab === 'online'">
+        <div class="title">{{ presenceKnown ? 'Chưa có ai đang hoạt động' : 'Chưa xác định trạng thái' }}</div>
+      </ng-container>
       <ng-container *ngIf="tab === 'unread'">
         <div class="title">Bạn đã đọc hết tin nhắn</div>
         <div>Nhóm có tin mới sẽ hiện ở đây.</div>

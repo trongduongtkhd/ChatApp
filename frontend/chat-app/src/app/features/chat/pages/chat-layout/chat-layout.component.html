@@ -9,6 +9,20 @@
       </button>
     </div>
 
+    <section aria-label="Bạn bè đang hoạt động" style="padding: 8px 12px; border-bottom: 1px solid var(--line)">
+      <div class="ca-meta">Bạn bè đang hoạt động<span *ngIf="presenceKnown"> · {{ onlineFriends.length }}</span></div>
+      <div *ngIf="!presenceKnown" class="ca-meta" role="status">Chưa xác định trạng thái</div>
+      <div style="display: flex; gap: 12px; overflow-x: auto; padding: 8px 0">
+        <a *ngFor="let friend of onlineFriends" [routerLink]="['/chat', friend.directGroupId]"
+           [attr.aria-label]="'Nhắn tin với ' + friend.displayName" style="flex: 0 0 64px; text-align: center; color: inherit; text-decoration: none">
+          <app-avatar [name]="friend.displayName" size="sm" [online]="true"></app-avatar>
+          <div class="ca-meta" style="max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ friend.displayName }}</div>
+        </a>
+      </div>
+      <div *ngIf="presenceKnown && !onlineFriends.length" class="ca-meta">Chưa có bạn bè online</div>
+      <a routerLink="/contacts" class="ca-meta">Xem danh bạ</a>
+    </section>
+
     <div *ngIf="loading" class="ca-loading"><span class="ca-spin"></span>Đang tải danh sách nhóm…</div>
 
     <div *ngIf="loadError" class="ca-side-state">
@@ -22,7 +36,7 @@
       <div class="ca-meta">Tạo nhóm đầu tiên hoặc chờ bạn bè thêm bạn vào nhóm.</div>
     </div>
 
-    <app-group-list *ngIf="!loading && !loadError && items.length" [items]="items" [myId]="myId" [now]="now" [onlineGroupId]="onlineGroupId"></app-group-list>
+    <app-group-list *ngIf="!loading && !loadError && items.length" [items]="items" [myId]="myId" [now]="now" [onlineCounts]="onlineCounts" [presenceKnown]="presenceKnown"></app-group-list>
   </aside>
 
   <main class="ca-main">

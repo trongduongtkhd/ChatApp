@@ -18,6 +18,10 @@ builder.Services.AddDbContext<NotificationDbContext>(options =>
 // Cùng code kiểm tra JWT với Gateway và các service khác (ChatApp.Common), cùng secret trong kho chung.
 // Hub /hubs/notifications (Bước 5) nhận token qua ?access_token= nhờ OnMessageReceived trong Common.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+builder.Services.AddRemoteAccountAccess();
+builder.Services.AddSingleton<AccountConnections>();
+builder.Services.AddSingleton<AccountHubFilter>();
+builder.Services.AddHostedService<AccountConnectionMonitor>();
 
 // Dùng DbContext (Scoped) → Scoped: mỗi sự kiện Kafka một scope riêng (KafkaConsumerBase tự tạo).
 builder.Services.AddScoped<MemberSnapshotService>();
@@ -34,7 +38,7 @@ builder.Services.AddControllers();
 
 // SignalR /hubs/notifications. Chạy 1 bản nên chưa cần Redis Backplane: Clients.User(...) chỉ cần tới các kết nối
 // nằm trên chính bản này. Chạy 2 bản thì phải thêm backplane như chat-service (Phần 8).
-builder.Services.AddSignalR();
+builder.Services.AddSignalR(o => o.AddFilter<AccountHubFilter>());
 // Định danh user của SignalR = claim "sub" (để Clients.User(userId) tìm đúng kết nối).
 builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();
 // Chỉ giữ IHubContext (Singleton) → Singleton được.
@@ -56,12 +60,13 @@ else
     app.Logger.LogWarning("Idempotent Consumer: TẮT → sự kiện trùng sẽ bị ĐẾM LẠI (chỉ dùng để demo)");
 
 app.UseAuthentication();
+app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapGet("/", () => "ChatApp.NotificationService is running");
 app.MapControllers();
 
 // Client kết nối ws://.../hubs/notifications (qua Gateway), JWT qua ?access_token= (Common).
-app.MapHub<NotificationHub>("/hubs/notifications");
+app.MapHub<NotificationHub>("/hubs/notifications", o => o.CloseOnAuthenticationExpiration = true);
 
 app.Run();

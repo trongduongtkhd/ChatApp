@@ -5,6 +5,9 @@
 
 # dotenv files
 .env
+infra/backups/*.dump
+infra/backups/test-cleanup-*.json
+infra/admin-seed-credentials.local.txt
 
 # User-specific files
 *.rsuser

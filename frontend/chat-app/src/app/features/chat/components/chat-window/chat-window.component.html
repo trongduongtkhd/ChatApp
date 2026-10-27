@@ -32,14 +32,14 @@
     <!-- Cột chat + panel thành viên bên phải (Members.dc.html: .ca-panel đứng cạnh khung chat) -->
     <div class="cw-col">
       <header class="ca-head">
-        <app-avatar [name]="title" [kind]="isDirect ? 'user' : 'group'" size="md" [online]="activeNames.length > 0"></app-avatar>
+        <app-avatar [name]="title" [kind]="isDirect ? 'user' : 'group'" size="md" [online]="presenceKnown && otherOnlineCount > 0"></app-avatar>
         <div class="txt">
           <h2 class="ca-h2">{{ title }}</h2>
           <ng-container *ngIf="detail; else noDetail">
             <!-- Chat riêng: không có "N thành viên" (luôn là 2), chỉ trạng thái của người kia -->
-            <div class="ca-meta" *ngIf="isDirect">{{ activeNames.length ? 'Đang hoạt động' : 'Trò chuyện riêng' }}</div>
+            <div class="ca-meta" *ngIf="isDirect">{{ !presenceKnown ? 'Chưa xác định trạng thái' : otherOnlineCount ? 'Đang hoạt động' : 'Đang offline' }}</div>
             <div class="ca-meta" *ngIf="!isDirect">
-              {{ memberCount }} thành viên<ng-container *ngIf="activeNames.length"> · {{ activeNames.join(', ') }} đang hoạt động</ng-container>
+              {{ memberCount }} thành viên · {{ !presenceKnown ? 'Chưa xác định trạng thái' : otherOnlineCount + ' thành viên khác đang online' }}
             </div>
           </ng-container>
           <ng-template #noDetail><div class="ca-meta">Không tải được thông tin nhóm</div></ng-template>
@@ -52,6 +52,16 @@
       </header>
 
       <app-connection-banner [status]="banner$ | async" (retry)="retryConnection()"></app-connection-banner>
+      <div class="ca-meta" style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 20px">
+        <label for="chat-week-date">Lịch sử theo tuần</label>
+        <input id="chat-week-date" type="date" [(ngModel)]="weekDate" aria-label="Chọn ngày trong tuần cần xem">
+        <button type="button" class="ca-btn secondary mp-add" (click)="selectWeek()">Xem tuần</button>
+        <button *ngIf="selectedWeek" type="button" class="ca-btn secondary mp-add" (click)="latest()">Về tin mới nhất</button>
+        <span *ngIf="weekError" role="alert">{{ weekError }}</span>
+      </div>
+      <div *ngIf="selectedWeek" class="ca-meta" style="padding: 0 20px 8px" role="status">
+        Tuần {{ weekLabel }} (giờ Việt Nam). Đang xem lịch sử; về tin mới nhất để gửi tin.
+      </div>
 
       <app-message-list
         [messages]="messages" [myId]="myId" [onlineIds]="onlineIds"
@@ -60,7 +70,10 @@
         (loadOlder)="loadOlder()" (resend)="resend($event)">
       </app-message-list>
 
-      <app-message-input [error]="sendError" (send)="send($event)"></app-message-input>
+      <div class="ca-meta" style="min-height: 22px; padding: 0 20px" role="status" aria-live="polite">
+        <span *ngIf="typingNames.length">{{ typingNames.join(', ') }} đang gõ…</span>
+      </div>
+      <app-message-input *ngIf="!selectedWeek" [(text)]="draft" [error]="sendError" (send)="send($event)" (typing)="setTyping($event)"></app-message-input>
     </div>
 
     <app-member-panel *ngIf="showMembers && detail && !isDirect" [detail]="detail" [myId]="myId" [onlineIds]="onlineIds"

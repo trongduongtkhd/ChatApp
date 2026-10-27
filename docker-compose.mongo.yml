@@ -1,0 +1,49 @@
+services:
+  mongo-config:
+    image: mongo:8.0.34
+    container_name: mongo-config
+    command: ["mongod", "--configsvr", "--replSet", "chat-config", "--port", "27019", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes: ["mongo-config-data:/data/configdb"]
+    networks: [chatapp-net]
+  mongo-shard-1:
+    image: mongo:8.0.34
+    container_name: mongo-shard-1
+    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-1", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes: ["mongo-shard-1-data:/data/db"]
+    networks: [chatapp-net]
+  mongo-shard-2:
+    image: mongo:8.0.34
+    container_name: mongo-shard-2
+    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-2", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    volumes: ["mongo-shard-2-data:/data/db"]
+    networks: [chatapp-net]
+  mongo-router:
+    image: mongo:8.0.34
+    container_name: mongo-router
+    command: ["mongos", "--configdb", "chat-config/mongo-config:27019", "--bind_ip_all", "--port", "27017"]
+    depends_on: [mongo-config, mongo-shard-1, mongo-shard-2]
+    networks: [chatapp-net]
+  mongo-init:
+    image: mongo:8.0.34
+    container_name: mongo-init
+    entrypoint: ["mongosh", "--nodb", "--quiet", "/init/init.js"]
+    volumes: ["./infra/mongo:/init:ro"]
+    depends_on: [mongo-router]
+    networks: [chatapp-net]
+    restart: "no"
+  chat-migrate:
+    profiles: [migration]
+    image: chatapp/chat-service
+    command: ["--migrate-chat", "--dry-run"]
+    environment:
+      ConnectionStrings__ChatDb: Host=postgres;Port=5432;Database=chat_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+      Mongo__ConnectionString: mongodb://mongo-router:27017/?appName=ChatApp&serverSelectionTimeoutMS=3000
+      Mongo__Database: chat_history
+    depends_on:
+      mongo-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
+    networks: [chatapp-net]
+volumes:
+  mongo-config-data:
+  mongo-shard-1-data:
+  mongo-shard-2-data:

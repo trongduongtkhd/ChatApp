@@ -3,6 +3,7 @@ export interface CurrentUser {
   id: string;          // claim "sub" (UserId, GUID v7)
   userName: string;    // claim "name"
   displayName: string; // claim "display_name"
+  systemRole: 'User' | 'SystemAdmin';
 }
 
 // POST /api/auth/login → LoginResponse (identity-service).

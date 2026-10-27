@@ -1,0 +1,15 @@
+syntax = "proto3";
+option csharp_namespace = "ChatApp.Contracts.Grpc";
+package account;
+
+service AccountAccess {
+  rpc GetAccounts (AccountAccessRequest) returns (AccountAccessReply);
+}
+message AccountAccessRequest { repeated string user_ids = 1; }
+message AccountAccessReply { repeated AccountState accounts = 1; }
+message AccountState {
+  string user_id = 1;
+  bool is_locked = 2;
+  int64 auth_version = 3;
+  string system_role = 4;
+}

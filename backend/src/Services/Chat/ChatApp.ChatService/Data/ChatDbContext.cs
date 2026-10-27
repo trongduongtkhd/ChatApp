@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 
 namespace ChatApp.ChatService.Data;
 
+// Schema PostgreSQL cũ được giữ để đối chiếu/rollback. API hiện chạy MongoChatStore, không đăng ký DbContext này.
 public class ChatDbContext(DbContextOptions<ChatDbContext> options) : DbContext(options)
 {
     public DbSet<Message> Messages => Set<Message>();

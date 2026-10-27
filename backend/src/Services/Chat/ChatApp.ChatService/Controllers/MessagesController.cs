@@ -4,6 +4,7 @@ using ChatApp.Common.Auth;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using MongoDB.Driver;
 
 namespace ChatApp.ChatService.Controllers;
 
@@ -25,13 +26,16 @@ public class MessagesController(
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetHistory(
-        Guid groupId, [FromQuery] long? beforeSeq, [FromQuery] int limit = 50, CancellationToken ct = default)
+        Guid groupId, [FromQuery] long? beforeSeq, [FromQuery] int limit = 50, [FromQuery] string? weekStart = null, CancellationToken ct = default)
     {
         // Giới hạn trên: không cho một request kéo cả triệu tin (tốn DB, tốn mạng).
         if (limit is < 1 or > MaxLimit)
             return Problem(title: $"limit phải từ 1 đến {MaxLimit}.", statusCode: StatusCodes.Status400BadRequest);
+        DateTime? week;
+        try { week = ChatWeek.Parse(weekStart); }
+        catch (ArgumentException ex) { return Problem(title: ex.Message, statusCode: 400); }
 
-        // Cùng cách kiểm tra với hub: cache Redis, trống thì gRPC. Người ngoài nhóm không đọc được lịch sử.
+        // Cùng cách kiểm tra với hub: Group gRPC hiện tại, không dùng cache quyền cũ.
         bool isMember;
         try
         {
@@ -46,6 +50,11 @@ public class MessagesController(
         if (!isMember)
             return Problem(title: "Bạn không phải thành viên nhóm này.", statusCode: StatusCodes.Status403Forbidden);
 
-        return Ok(await messages.GetHistoryAsync(groupId, beforeSeq, limit, ct));
+        try { return Ok(await messages.GetHistoryAsync(groupId, beforeSeq, limit, ct, week)); }
+        catch (Exception ex) when (ex is MongoException or TimeoutException)
+        {
+            logger.LogWarning("Mongo lịch sử chưa phản hồi: {Error}", ex.Message);
+            return Problem(title: "Kho lịch sử tạm gián đoạn, vui lòng thử lại.", statusCode: 503);
+        }
     }
 }

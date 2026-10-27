@@ -15,11 +15,51 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 | 9 | notification-service | ✅ Xong |
 | 10 | Angular | ✅ Xong |
 | 11 | Bạn bè + nhắn tin riêng | ✅ Xong |
+| 11b | Công việc 1: Presence Service + mọi bạn bè/nhóm online + đang gõ | ✅ Xong (27/10/2026) |
+| 11c | Công việc 2: MongoDB hai shard, transaction/Outbox, lịch sử tuần | ✅ Xong (27/10/2026) |
+| 11d | Công việc 3: admin, khóa tài khoản, role nhóm, phê duyệt/link mời | ✅ Xong (27/10/2026) |
 | 12 | Chịu lỗi | ⬜ |
 | 13 | Sao lưu | ⬜ |
 
 ## Ghi chú cho báo cáo
 (Sau mỗi phần ghi: khái niệm đã dùng, thuộc chương nào, file code minh họa, cách demo.)
+
+### Phần 11d – Quản trị tài khoản và nhóm (27/10/2026)
+- Theo yêu cầu dọn dữ liệu mẫu: đã xóa 251 user fixture, 210 nhóm fixture/Demo, 9.322 tin Mongo, 5.281 Outbox Mongo và 125 state; dọn dữ liệu liên quan SQL/Redis. Giữ 8 tài khoản (admin + 7 tài khoản gốc), 2 nhóm thường và 1 chat riêng, 9 tin thật; fingerprint SQL và Mongo trước/sau khớp. Backup đầy đủ tại `infra/backups/test-cleanup-20261027T133741Z-*`. Không reset Kafka offsets hoặc xóa volume. Wrapper test thêm finally cleanup theo thời điểm bắt đầu để không để lại dữ liệu test; test riêng bằng node cần dọn thủ công.
+- Cập nhật theo yêu cầu người dùng: đổi mật khẩu admin hiện có, cập nhật secret/file đăng nhập local và cho seed mật khẩu từ 8 ký tự. Lưu BCrypt, tăng AuthVersion để thu hồi phiên cũ và ghi audit PasswordReset. Build Identity thành công; đăng nhập mới và API SystemAdmin đã được xác minh.
+- Đã seed SystemAdmin `admin`, mật khẩu từ user-secrets, file đăng nhập local có gitignore. Seed transaction/advisory lock, không reset tài khoản đã tồn tại. AccountAdministration và GroupGovernance migration bổ sung, giữ dữ liệu cũ.
+- Đã có admin users/groups phân trang/tìm kiếm/chi tiết/khóa-mở khóa/audit. SystemRole riêng với GroupRole; API kiểm quyền server, DTO không chứa PasswordHash.
+- AuthVersion tăng khi khóa/mở khóa, token cũ 401; middleware đọc trạng thái nguồn qua gRPC, Hub filter + monitor server thu hồi nhiều phiên trên hai Chat và Notification, dọn Presence. Membership kiểm nguồn và monitor phòng độc lập heartbeat/Kafka; lỗi dependency trả 503/fail closed.
+- Owner/Admin/Member, bổ nhiệm/miễn nhiệm/chuyển Owner, approval, requests và invite token 192 bit/hash SHA-256/rotate. Row lock group và unique indexes chống race; đổi role không phát member-added, giữ unread. Pending chưa có quyền chat. Chat riêng giữ nghiệp vụ bạn bè.
+- Angular 12 có /admin và /groups/join/:token, guard, tìm kiếm/phân trang/xác nhận, panel role/request/link, login returnUrl nội bộ. Build backend solution và Angular production thành công; chỉ còn cảnh báo MessagePack có sẵn.
+- Nghiệm thu **232/232**: 80 API/integration (Kafka ngừng, nhiều replica, không heartbeat vẫn thu hồi phòng, miễn nhiệm Admin đang khóa); 30 UI (link chưa đăng nhập, Member đề xuất, giữ lịch sử khi khóa/mở); 12 dependency/fail closed/recovery; 110 hồi quy công việc 1+2. Các test UI không có JavaScript runtime exception, đã xem ảnh sáng/tối. Build solution 0 lỗi, Angular 12 production trên Node 14.21.3 thành công, không thêm npm package.
+- Dependency test dừng đúng Identity/Group local rồi tự khởi động lại; kiểm cả đường gRPC từ Chat đã phục hồi trước reconnect, không chỉ root HTTP 200. Legacy migration verify vẫn khớp SHA-256 4.629 tin cũ. Mongo test 200 tin song song vẫn seq liên tục (lượt hồi quy ~4,57s), không dùng số đo local như cam kết production.
+- Hệ thống đang chạy: Angular localhost:4200, Gateway/Identity/Group/Notification local, hai Chat replica và hạ tầng Docker. Mật khẩu admin ở file local có gitignore, không in log.
+- Khái niệm và code/chương, lệnh test/demo: `docs/ADMIN.md`. Các mode cache/down Phần 7 là legacy, hiện dùng admin-dependency-test. Cơ chế quyền mới ưu tiên nguồn hiện tại: Identity/Group không xác nhận được thì tạm từ chối; có chi phí RPC và độ trễ monitor, chưa phải HA production.
+
+### Phần 11c – MongoDB và lịch sử tuần (27/10/2026)
+- Đã dựng cluster thật MongoDB 8.0.34, hai shard replica set một node + config replica set một node + mongos. MongoDB.Driver 3.13.0. Các cổng Mongo nội bộ Docker, không publish host.
+- Đã chuyển 4.629 message/4.624 Outbox thuộc 89 conversation; đối chiếu source/target SHA-256 `14B661E7886CF89E5938008C2F5207175F651A97E0BABAB33C5CCA53BE89FD14` khớp. Giữ timestamp tới ticks, IDs/sequence/content và trạng thái Outbox. Backup `infra/backups/chat-before-mongo-20261027-154548.dump`, PostgreSQL nguồn còn nguyên.
+- Đã chạy lại **Apply + Verify** sau bộ test, vẫn khớp SHA-256; số document Mongo trước/sau không đổi: messages 8.304, keys 8.304, Outbox 5.280, state 112 (bao gồm fixture test). Chứng minh import chạy lại không nhân đôi hay xóa phần phát sinh. Backup lượt hai: `infra/backups/chat-before-mongo-20261027-162003.dump`.
+- Runtime Chat dùng Mongo transaction: message_keys (khóa toàn cluster), conversation_state (counter), messages, outbox_messages. Counter thay Redis INCR và cùng commit. Publisher lease/version/generation fencing theo conversation, tuần tự ACK, at-least-once, giữ EventId để Notification dedup.
+- Angular lọc tuần theo lịch Việt Nam, index group/week/sequence, keyset pagination. Tuần cũ không nhận tin ngoài khoảng/không tự markRead tin mới, có nút về hiện tại, reconnect giữ tuần và bản nháp theo conversation.
+- Kiểm thử tổng hợp đạt **110/110**: Mongo persistence/transaction/shards/index 25; Mongo/Kafka/shard faults 11; counter recovery 2; friends/chat riêng 24; Presence 17; SIGKILL/offline/REST 7; Angular UI 24. UI không có lỗi JavaScript runtime. Backend solution và Angular 12 production build thành công trên Node 14.21.3.
+- Rollback giữa insert không để lại key/message/Outbox hay tăng sequence; collision ID xuyên shard bị chặn; 200 tin song song có sequence liên tục (lượt đo đầu ~6,1s). Explain: 3 document examined/3 returned khi lọc tuần trong 1.005 fixture, dùng group_week_sequence và target một shard. Đọc Kafka kiểm tra đủ 205 EventId duy nhất và thứ tự sequence.
+- Thử ngắt Kafka phát hiện lỗi commit offset có thể dừng Notification. Đã sửa KafkaConsumerBase tạo lại consumer khi lỗi Kafka không fatal; kiểm thử lại Notification vẫn sống và unread chỉ tăng một lần sau phục hồi. Không mở rộng sang Polly/log tập trung của Phần 12.
+- Chạy lặp lại UI phát hiện REST có thể 502 sau khi hub vừa reconnect (replica còn restart). Đã thêm retry 1/2/4/8s có giới hạn cho phục hồi lịch sử, không retry 4xx, tự hủy khi đổi nhóm/tuần. UI test đợi handshake mới thay vì dựa vào DOM cũ.
+- Lệnh, code minh họa theo chương, giới hạn và kịch bản demo: `docs/MONGODB.md`; chạy chung bằng `scripts/test-chat-system.ps1`.
+- Khái niệm: database per service (chương 2), worker/polling (3), mongos/SignalR/gRPC/Kafka (4), shard key và GUID (5), transaction/unique constraint/counter/fencing (6), backup chuyển đổi (7), retry/unknown commit và outage (8).
+- Giới hạn: replica set một node phục vụ đồ án, không HA; hash groupId phân phối conversation, nhóm cực nóng còn giới hạn một shard. Transaction xuyên shard/counter cùng conversation có chi phí; số liệu test local không đại diện throughput production. Admin/roles/phê duyệt nhóm chưa làm.
+
+### Phần 11b – Presence Service (phê duyệt 27/10/2026)
+- **Đã triển khai:** project Presence Service, Redis lease từng ConnectionId (heartbeat khoảng 10s, hết hạn 60s, quét 2s), gRPC nội bộ; Group/Identity cung cấp audience theo lô. Chat có relay Pub/Sub, snapshot có phiên bản, trạng thái unknown, thu hồi phòng khi mất quyền. Frontend khởi tạo hub toàn app, mọi bạn bè/nhóm online, bộ lọc, đang gõ có tự hết hạn. Giữ Angular 12/Node 14; không thêm npm package.
+- **Quy tắc:** user online khi còn ít nhất một lease hợp lệ; ngắt transport giữ lease chờ reconnect, logout thu hồi phiên hiện tại; nhóm chỉ đếm thành viên KHÁC người xem. Redis TIME tránh lệch đồng hồ giữa replica; Lua cập nhật/gia hạn/dọn + phát tín hiệu nguyên tử. GetOnline loại lease hết hạn ngay, dù sweeper chưa xóa vật lý (có thể chậm thêm một chu kỳ).
+- **Đã giải quyết các giới hạn lịch sử của Phần 7/8/11:** online ma sau kill; presence chỉ biết phòng đang mở; thành viên bị gỡ vẫn nhận tin mãi cho tới reconnect. Thu hồi phòng theo trạng thái Group hiện tại sau sự kiện Kafka, heartbeat sửa sai khi lỡ Pub/Sub; vẫn có độ trễ eventual consistency.
+- **Giao tiếp:** browser SignalR → Chat → gRPC Presence; Presence báo thay đổi Redis Pub/Sub → mọi Chat replica đọc snapshot và gửi về connection cục bộ. Heartbeat cũng đọc lại nguồn quyền Identity/Group, không tin danh sách userId từ client. Presence lỗi → chưa xác định, không chặn lưu/gửi tin. Kafka vẫn phát sự kiện cho cả online/offline, lấy bù REST giữ nguyên.
+- **Khái niệm → chương:** microservice riêng (2); BackgroundService sweeper (3); SignalR/gRPC/PubSub + snapshot (4); JWT/ConnectionId/nhiều thiết bị (5); Redis TIME/Lua/Semaphore/phiên bản snapshot (6); lease, sửa sai sau mất tín hiệu, reconnect, SIGKILL (8).
+- **Build đã kiểm tra:** backend 0 lỗi; production Angular 12 trên Node 14.21.3 thành công (initial ~368,44 kB). Restore có cảnh báo package MessagePack 2.5.302 (NU1902); script test báo SignalR.Common 10.0.12 (NU1903). Chưa đổi phiên bản thư viện ngoài phạm vi công việc này.
+- **Kiểm thử đạt trên mã cuối:** `chat-test.cs -- presence` 17/17; `-- presencekill` 7/7 (SIGKILL thật, Kafka vẫn phát, REST lấy bù); `-- friends` hồi quy 24/24; Edge headless với production Angular 15/15 (bao gồm Presence tắt vẫn chat, phục hồi, nhóm mới từ người khác, danh bạ tự đổi khi người kia hủy bạn). Tổng 63 kiểm tra; không có lỗi JavaScript runtime trong kiểm thử UI. `git diff --check` sạch. Lệnh, mô tả code và kịch bản demo: `docs/PRESENCE.md`.
+- **Phạm vi còn lại:** MongoDB/lưu lịch sử ở Phần 11c; admin/role/phê duyệt nhóm ở Phần 11d. Phần 12 Polly/log tập trung và Phần 13 sao lưu vẫn chưa hoàn thành. Chưa có Redis HA riêng; audience lớn cần tối ưu/phân trang; tab ngủ quá lâu vẫn hết lease.
 
 ### Phần 1 – Cấu trúc solution + Docker Compose hạ tầng
 - **Đã làm:** `backend/ChatApp.sln` (định dạng .sln, vì .NET 10 mặc định tạo .slnx) gồm 7 project khung; mỗi service chỉ tham chiếu `ChatApp.Contracts` + `ChatApp.Common`. Port local đặt trong `Properties/launchSettings.json` (5000–5004).

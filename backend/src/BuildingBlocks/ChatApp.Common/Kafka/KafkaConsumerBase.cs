@@ -30,7 +30,23 @@ public abstract class KafkaConsumerBase<TEvent>(
     protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
         // Consume() là hàm CHẶN (đứng chờ tới khi có message) → chạy trên luồng riêng của thread pool,
         // không giữ luồng khởi động của ứng dụng.
-        Task.Run(() => ConsumeLoopAsync(stoppingToken), stoppingToken);
+        Task.Run(async () =>
+        {
+            while (!stoppingToken.IsCancellationRequested)
+            {
+                try { await ConsumeLoopAsync(stoppingToken); }
+                catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                catch (KafkaException ex) when (!ex.Error.IsFatal)
+                {
+                    // Commit offset có thể lỗi khi broker chết/rebalance, dù nghiệp vụ đã commit DB.
+                    // Tạo consumer mới, đọc lại từ offset đã ACK; handler idempotent loại bản trùng.
+                    logger.LogWarning("Kafka consumer/commit tạm lỗi: {Reason}; tạo lại consumer sau {Delay}s",
+                        ex.Error.Reason, RetryDelay.TotalSeconds);
+                    try { await Task.Delay(RetryDelay, stoppingToken); }
+                    catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
+                }
+            }
+        }, stoppingToken);
 
     private async Task ConsumeLoopAsync(CancellationToken stoppingToken)
     {
@@ -100,7 +116,9 @@ public abstract class KafkaConsumerBase<TEvent>(
         finally
         {
             // Báo Kafka "tôi rời group" → Kafka chia lại partition cho bản khác ngay, không phải chờ hết hạn phiên.
-            consumer.Close();
+            try { consumer.Close(); }
+            catch (KafkaException ex) when (!ex.Error.IsFatal)
+            { logger.LogWarning("Không gửi được LeaveGroup khi đóng consumer: {Reason}", ex.Error.Reason); }
         }
     }
 

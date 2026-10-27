@@ -11,11 +11,12 @@ export class MessageApiService {
 
   // Phân trang keyset: trả tối đa `limit` tin có seq < beforeSeq, xếp cũ → mới.
   // Không truyền beforeSeq = trang mới nhất. Trang rỗng = hết. Không phải thành viên → 403.
-  history(groupId: string, beforeSeq?: number, limit = 50): Observable<Message[]> {
+  history(groupId: string, beforeSeq?: number, limit = 50, weekStart?: string): Observable<Message[]> {
     let params = new HttpParams().set('limit', String(limit));
     if (beforeSeq !== undefined) {
       params = params.set('beforeSeq', String(beforeSeq));
     }
+    if (weekStart) params = params.set('weekStart', weekStart);
     return this.http.get<Message[]>(`${environment.apiUrl}/chat/groups/${groupId}/messages`, { params });
   }
 }

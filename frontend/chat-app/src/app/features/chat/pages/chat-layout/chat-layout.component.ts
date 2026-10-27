@@ -1,7 +1,7 @@
 import { Component, NgZone, OnDestroy, OnInit } from '@angular/core';
 import { Router } from '@angular/router';
 import { forkJoin, interval, Observable, of, Subscription } from 'rxjs';
-import { catchError, map, switchMap } from 'rxjs/operators';
+import { catchError, finalize, map, switchMap } from 'rxjs/operators';
 import { Group } from '../../../../core/models/group';
 import { Message } from '../../../../core/models/message';
 import { UnreadChange } from '../../../../core/models/unread-counter';
@@ -12,6 +12,8 @@ import { MessageApiService } from '../../../../core/services/message-api.service
 import { NotificationApiService } from '../../../../core/services/notification-api.service';
 import { NotificationHubService } from '../../../../core/services/notification-hub.service';
 import { GroupListItem } from '../../components/group-list/group-list.component';
+import { Friend } from '../../../../core/models/friend';
+import { FriendApiService } from '../../../../core/services/friend-api.service';
 
 // Khung chính /chat: thanh bên (danh sách nhóm) + <router-outlet> cho route con /chat/:groupId.
 // Giữ dữ liệu danh sách nhóm (tin cuối, số chưa đọc); group-list chỉ hiển thị.
@@ -29,9 +31,15 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
   hasChat = false;          // đang có route con /chat/:groupId hay không
   now = Date.now();         // đổi mỗi phút → "2 phút" tự thành "3 phút"
 
-  // Nhóm đang mở có thành viên KHÁC mình online → chấm xanh trên avatar nhóm đó ở danh sách.
-  // Chỉ biết presence của nhóm đã JoinGroup (nhóm đang mở), các nhóm khác không có dữ liệu.
-  onlineGroupId: string | null = null;
+  // Snapshot theo lô cho mọi bạn bè/nhóm được phép xem, không phụ thuộc phòng đang mở.
+  onlineCounts: { [groupId: string]: number } = {};
+  presenceKnown = false;
+  onlineIds: ReadonlySet<string> = new Set();
+  friends: Friend[] = [];
+  private friendKey = '';
+  private friendsLoading = false;
+  private groupLoadInFlight = false;
+  get onlineFriends(): Friend[] { return this.presenceKnown ? this.friends.filter(f => this.onlineIds.has(f.userId)) : []; }
   readonly banner$ = this.hub.banner$;
 
   // Số chưa đọc theo nhóm. Để riêng (không chỉ nằm trong items) vì có thể về TRƯỚC danh sách nhóm.
@@ -42,6 +50,7 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
   constructor(
     private readonly auth: AuthService,
     private readonly groupApi: GroupApiService,
+    private readonly friendApi: FriendApiService,
     private readonly messageApi: MessageApiService,
     private readonly notificationApi: NotificationApiService,
     // Inject ở đây để 2 hub được tạo (và tự kết nối) ngay khi vào /chat, trước khi mở nhóm nào.
@@ -60,8 +69,24 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
     this.subs.add(this.hub.messages$.subscribe(m => this.updateLast(m)));
     this.subs.add(this.hub.presence$.subscribe(p => {
       this.openGroupId = p?.groupId ?? null;
-      this.onlineGroupId = p && Array.from(p.online).some(id => id !== this.myId) ? p.groupId : null;
     }));
+    this.subs.add(this.hub.activity$.subscribe(p => {
+      this.presenceKnown = !!p?.known;
+      this.onlineCounts = p?.known ? p.onlineCountsByGroup : {};
+      this.onlineIds = new Set(p?.known ? p.onlineUserIds : []);
+      if (p?.known && !this.loading && Object.keys(p.onlineCountsByGroup).sort().join(',') !== this.items.map(i => i.group.id).sort().join(',')) {
+        this.load(true);
+      }
+      const key = p?.known ? p.friendIds.slice().sort().join(',') : '';
+      if (p?.known && key !== this.friendKey && !this.friendsLoading) {
+        this.friendsLoading = true;
+        this.subs.add(this.friendApi.list().subscribe({
+          next: friends => { this.friends = friends; this.friendKey = key; this.friendsLoading = false; },
+          error: () => { this.friendsLoading = false; }
+        }));
+      }
+    }));
+    this.subs.add(this.hub.revoked$.subscribe(() => this.load(true)));
     // Chat hub kết nối lại: có thể đã lỡ tin ở bất kỳ nhóm nào → tải lại tin cuối + số chưa đọc.
     this.subs.add(this.hub.reconnected$.subscribe(() => {
       this.refreshLastMessages();
@@ -92,12 +117,15 @@ export class ChatLayoutComponent implements OnInit, OnDestroy {
 
   // silent: nạp lại ngầm (không hiện "Đang tải…", lỗi thì giữ danh sách cũ) – dùng khi có nhóm mới.
   load(silent = false): void {
+    if (this.groupLoadInFlight) return;
+    this.groupLoadInFlight = true;
     if (!silent) {
       this.loading = true;
       this.loadError = false;
     }
     this.subs.add(this.groupApi.list().pipe(
-      switchMap(groups => this.withLastMessages(groups))
+      switchMap(groups => this.withLastMessages(groups)),
+      finalize(() => this.groupLoadInFlight = false)
     ).subscribe({
       next: items => {
         this.items = this.withUnread(sortByActivity(items));

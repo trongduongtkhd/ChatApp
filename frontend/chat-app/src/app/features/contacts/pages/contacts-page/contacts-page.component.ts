@@ -8,8 +8,9 @@ import { UserSnapshot } from '../../../../core/models/group';
 import { AuthService } from '../../../../core/services/auth.service';
 import { FriendApiService } from '../../../../core/services/friend-api.service';
 import { GroupApiService } from '../../../../core/services/group-api.service';
+import { ChatHubService } from '../../../../core/services/chat-hub.service';
 
-type Tab = 'friends' | 'incoming' | 'outgoing';
+type Tab = 'friends' | 'online' | 'incoming' | 'outgoing';
 // Quan hệ của mình với một người trong kết quả tìm kiếm (tính từ 3 danh sách đã tải, không gọi thêm API).
 type Relation = 'self' | 'friend' | 'incoming' | 'outgoing' | 'none';
 
@@ -25,12 +26,16 @@ export class ContactsPageComponent implements OnInit, OnDestroy {
   readonly myId = this.auth.currentUser?.id ?? '';
   readonly tabs: { id: Tab; label: string }[] = [
     { id: 'friends', label: 'Bạn bè' },
+    { id: 'online', label: 'Đang hoạt động' },
     { id: 'incoming', label: 'Lời mời' },
     { id: 'outgoing', label: 'Đã gửi' }
   ];
   tab: Tab = 'friends';
 
   friends: Friend[] = [];
+  onlineIds: ReadonlySet<string> = new Set();
+  presenceKnown = false;
+  get shownFriends(): Friend[] { return this.tab === 'online' ? this.friends.filter(f => this.onlineIds.has(f.userId)) : this.friends; }
   incoming: FriendRequest[] = [];
   outgoing: FriendRequest[] = [];
   loading = true;
@@ -49,15 +54,24 @@ export class ContactsPageComponent implements OnInit, OnDestroy {
   removeError: string | null = null;
 
   private readonly subs = new Subscription();
+  private refreshing = false;
 
   constructor(
     private readonly friendApi: FriendApiService,
     private readonly groupApi: GroupApiService,
     private readonly auth: AuthService,
+    private readonly hub: ChatHubService,
     private readonly host: ElementRef<HTMLElement>
   ) {}
 
   ngOnInit(): void {
+    this.subs.add(this.hub.activity$.subscribe(p => {
+      this.presenceKnown = !!p?.known;
+      this.onlineIds = new Set(p?.known ? p.onlineUserIds : []);
+      if (p?.known && !this.loading && p.friendIds.slice().sort().join(',') !== this.friends.map(f => f.userId).sort().join(',')) {
+        this.reload();
+      }
+    }));
     this.reload();
     this.subs.add(this.query.valueChanges.pipe(
       map((q: string) => q.trim()),
@@ -73,14 +87,17 @@ export class ContactsPageComponent implements OnInit, OnDestroy {
 
   // Tải song song 3 danh sách (cùng một service). Lỗi → hộp lỗi + nút Thử lại, giữ dữ liệu cũ.
   reload(): void {
+    if (this.refreshing) return;
+    this.refreshing = true;
     this.loadError = false;
     this.subs.add(forkJoin([this.friendApi.list(), this.friendApi.incoming(), this.friendApi.outgoing()])
-      .pipe(finalize(() => (this.loading = false)))
+      .pipe(finalize(() => { this.loading = false; this.refreshing = false; }))
       .subscribe({
         next: ([friends, incoming, outgoing]) => {
           this.friends = friends;
           this.incoming = incoming;
           this.outgoing = outgoing;
+          this.hub.refreshActivity();
         },
         error: () => (this.loadError = true)
       }));

@@ -2,6 +2,8 @@
 # Biến ${...} lấy từ file .env cùng thư mục.
 
 name: chatapp
+include:
+  - docker-compose.mongo.yml
 
 # Khai báo chung cho MỌI bản chat-service (Phần 8). "x-..." là phần mở rộng, Compose không coi là service.
 # &chat-service đặt tên (anchor) cho khối này; các service bên dưới chép lại bằng "<<: *chat-service"
@@ -17,10 +19,14 @@ x-chat-service: &chat-service
     # Trong mạng Docker gọi nhau bằng TÊN container (Docker DNS), không dùng localhost:
     # localhost trong container là chính container đó.
     ConnectionStrings__ChatDb: Host=postgres;Port=5432;Database=chat_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
+    Mongo__ConnectionString: mongodb://mongo-router:27017/?appName=ChatApp&serverSelectionTimeoutMS=3000
+    Mongo__Database: chat_history
     ConnectionStrings__Redis: redis:6379
     Kafka__BootstrapServers: kafka:29092
     # group-service vẫn chạy trên Windows → host.docker.internal = "máy Windows" nhìn từ trong container (Docker Desktop).
     GrpcServices__GroupService: http://host.docker.internal:5012
+    GrpcServices__IdentityService: http://host.docker.internal:5011
+    GrpcServices__PresenceService: http://presence-service:5015
     # Cùng secret với user-secrets → token do identity (chạy local) cấp vẫn hợp lệ ở đây.
     Jwt__Secret: ${JWT_SECRET}
     # Redis Backplane, mặc định bật. Demo tắt (PowerShell):
@@ -28,16 +34,40 @@ x-chat-service: &chat-service
     # Bật lại: Remove-Item Env:CHAT_BACKPLANE; docker compose up -d chat-service-1 chat-service-2
     SignalR__RedisBackplane: ${CHAT_BACKPLANE:-true}
   depends_on:
+    mongo-init:
+      condition: service_completed_successfully
     postgres:
       condition: service_healthy
     redis:
       condition: service_healthy
+    presence-service:
+      condition: service_started
     kafka-init:
       condition: service_completed_successfully
   networks:
     - chatapp-net
 
 services:
+  presence-service:
+    build:
+      context: ./backend
+      dockerfile: src/Services/Presence/ChatApp.PresenceService/Dockerfile
+    image: chatapp/presence-service
+    container_name: presence-service
+    environment:
+      ConnectionStrings__Redis: redis:6379,abortConnect=false,asyncTimeout=2000
+      Presence__HeartbeatSeconds: ${PRESENCE_HEARTBEAT_SECONDS:-10}
+      Presence__LeaseSeconds: ${PRESENCE_LEASE_SECONDS:-60}
+      Presence__SweepSeconds: 2
+    # Chỉ health endpoint mở trên localhost; gRPC 5015 chỉ trong mạng Docker.
+    ports:
+      - "127.0.0.1:5005:5005"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - chatapp-net
+
   postgres:
     image: postgres:17-alpine
     container_name: postgres
@@ -129,6 +159,7 @@ services:
         T=/opt/kafka/bin/kafka-topics.sh
         B=kafka:29092
         $$T --bootstrap-server $$B --create --if-not-exists --topic identity.user-registered --partitions 1 --replication-factor 1
+        $$T --bootstrap-server $$B --create --if-not-exists --topic identity.account-state-changed --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic identity.friendship-changed --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-added      --partitions 1 --replication-factor 1
         $$T --bootstrap-server $$B --create --if-not-exists --topic group.member-removed    --partitions 1 --replication-factor 1

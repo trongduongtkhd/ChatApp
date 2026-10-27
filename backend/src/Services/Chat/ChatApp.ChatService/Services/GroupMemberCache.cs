@@ -3,14 +3,9 @@ using StackExchange.Redis;
 
 namespace ChatApp.ChatService.Services;
 
-// Cache danh sách thành viên nhóm trong Redis (DESIGN mục 3: set group:members:{groupId}), mẫu CACHE-ASIDE:
-//   đọc cache → có thì dùng luôn; không có (cache miss) → hỏi nguồn gốc (group-service qua gRPC) → ghi vào cache.
-//
-// Lợi ích:
-// - Mỗi tin nhắn không phải gọi gRPC (nhanh hơn, group-service đỡ tải).
-// - group-service chết thì nhóm đã có trong cache VẪN chat được (giảm phụ thuộc lúc chạy).
-// Cái giá: dữ liệu có thể CŨ trong chốc lát. Thêm/xóa thành viên → group-service phát Kafka member-added/removed
-// → MemberAdded/RemovedConsumer xóa key → lần sau đọc lại từ gRPC. Khoảng trễ ~1–2 giây (eventual consistency).
+// Tên lớp giữ từ Phần 7. Công việc 3: IsMember luôn hỏi nguồn Group gRPC hiện tại.
+// Cache-aside bên dưới chỉ là đường đọc danh sách legacy, không được dùng quyết định quyền.
+// Invalidate xóa key legacy và đánh thức đồng bộ phòng trên mọi replica qua Pub/Sub.
 public class GroupMemberCache(
     IConnectionMultiplexer redis,
     GroupMembershipClient groups,
@@ -23,20 +18,8 @@ public class GroupMemberCache(
 
     public async Task<bool> IsMemberAsync(Guid groupId, Guid userId, CancellationToken ct)
     {
-        var db = redis.GetDatabase();
-        var key = Key(groupId);
-
-        // Cache hit, là thành viên (trường hợp thường gặp nhất: 1 lệnh Redis, không gọi gRPC).
-        if (await db.SetContainsAsync(key, userId.ToString()))
-            return true;
-
-        // SISMEMBER trả false cho cả 2 trường hợp "key có nhưng không chứa user" và "key không tồn tại"
-        // → phải hỏi thêm EXISTS để phân biệt "chắc chắn không phải thành viên" với "chưa có cache".
-        if (await db.KeyExistsAsync(key))
-            return false;
-
-        var memberIds = await FillAsync(groupId, ct);
-        return memberIds.Contains(userId);
+        // Công việc 3: quyền truy cập phải theo nguồn hiện tại, cả khi Kafka đang ngừng.
+        return await groups.IsMemberAsync(groupId, userId, ct);
     }
 
     // Danh sách thành viên (Bước 6 – presence dùng).
@@ -53,6 +36,8 @@ public class GroupMemberCache(
     public async Task InvalidateAsync(Guid groupId)
     {
         var deleted = await redis.GetDatabase().KeyDeleteAsync(Key(groupId));
+        // Mọi replica phải kiểm tra lại phòng + audience; consumer group Kafka chỉ giao cho một replica.
+        await redis.GetSubscriber().PublishAsync(RedisChannel.Literal(PresenceRelay.MembershipChannel), groupId.ToString());
         logger.LogInformation("Xóa cache thành viên {Key}: {Result}", Key(groupId), deleted ? "đã xóa" : "không có sẵn");
     }
 

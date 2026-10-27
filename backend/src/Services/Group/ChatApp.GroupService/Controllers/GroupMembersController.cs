@@ -19,7 +19,8 @@ public class GroupMembersController(GroupManagementService groupService) : Contr
     public async Task<IActionResult> Add(Guid groupId, AddMemberRequest request, CancellationToken ct)
     {
         var result = await groupService.AddMemberAsync(User.GetUserId(), groupId, request.UserId!.Value, ct);
-        return this.ToActionResult(result, () => StatusCode(StatusCodes.Status201Created, result.Value));
+        return this.ToActionResult(result, () => result.Value!.Member is { } member
+            ? StatusCode(StatusCodes.Status201Created, member) : StatusCode(StatusCodes.Status202Accepted, result.Value.Request));
     }
 
     [HttpDelete("{userId:guid}")]

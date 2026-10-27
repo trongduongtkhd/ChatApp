@@ -64,10 +64,11 @@
 
           <ng-container *ngIf="!loading" [ngSwitch]="tab">
             <!-- Bạn bè -->
-            <ng-container *ngSwitchCase="'friends'">
-              <div *ngFor="let f of friends; trackBy: trackByUser" class="ca-item mp-row ct-row">
-                <app-avatar [name]="f.displayName" size="md"></app-avatar>
-                <span class="txt"><div class="name">{{ f.displayName }}</div><div class="prev">&#64;{{ f.userName }}</div></span>
+            <ng-container *ngIf="tab === 'friends' || tab === 'online'">
+              <div *ngIf="!presenceKnown" class="ca-meta" role="status" style="padding: 12px">Chưa xác định trạng thái hoạt động</div>
+              <div *ngFor="let f of shownFriends; trackBy: trackByUser" class="ca-item mp-row ct-row">
+                <app-avatar [name]="f.displayName" size="md" [online]="presenceKnown && onlineIds.has(f.userId)"></app-avatar>
+                <span class="txt"><div class="name">{{ f.displayName }}</div><div class="prev">&#64;{{ f.userName }} · {{ !presenceKnown ? 'Chưa xác định' : onlineIds.has(f.userId) ? 'Đang hoạt động' : 'Offline' }}</div></span>
                 <a class="ca-btn secondary mp-add" [routerLink]="['/chat', f.directGroupId]">Nhắn tin</a>
                 <button class="ca-iconbtn ghost mp-remove" type="button" [disabled]="busyId === f.userId"
                         [attr.aria-label]="'Hủy kết bạn với ' + f.displayName" title="Hủy kết bạn" (click)="askRemove(f)">
@@ -78,6 +79,7 @@
                 <div class="title">Chưa có bạn bè</div>
                 Tìm người ở ô phía trên rồi bấm Kết bạn.
               </div>
+              <div *ngIf="tab === 'online' && friends.length && presenceKnown && !shownFriends.length" class="ca-list-empty">Chưa có bạn bè đang online</div>
             </ng-container>
 
             <!-- Lời mời đến -->

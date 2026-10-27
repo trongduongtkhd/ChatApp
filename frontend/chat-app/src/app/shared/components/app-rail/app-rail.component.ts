@@ -27,6 +27,9 @@ import { AuthService } from '../../../core/services/auth.service';
       </a>
 
       <!-- Avatar của mình ở đáy → trang Cài đặt (hồ sơ) -->
+      <a *ngIf="isAdmin" class="ca-rail-item" routerLink="/admin" routerLinkActive="active" aria-label="Quản trị hệ thống" title="Quản trị hệ thống">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3 3 7v6c0 5 9 8 9 8s9-3 9-8V7z"></path><path d="m8 12 3 3 5-6"></path></svg>
+      </a>
       <a class="ca-rail-me" routerLink="/settings" [attr.aria-label]="'Hồ sơ: ' + displayName" [title]="displayName">
         <app-avatar [name]="displayName" size="md"></app-avatar>
       </a>
@@ -37,6 +40,7 @@ import { AuthService } from '../../../core/services/auth.service';
 })
 export class AppRailComponent {
   readonly displayName = this.auth.currentUser?.displayName ?? '';
+  readonly isAdmin = this.auth.currentUser?.systemRole === 'SystemAdmin';
 
   constructor(private readonly auth: AuthService) {}
 }

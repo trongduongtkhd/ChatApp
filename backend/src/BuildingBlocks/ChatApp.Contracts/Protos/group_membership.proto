@@ -10,6 +10,7 @@ package group_membership;
 service GroupMembership {
   rpc CheckMembership (CheckMembershipRequest) returns (CheckMembershipReply);
   rpc GetMemberIds (GetMemberIdsRequest) returns (GetMemberIdsReply);
+  rpc GetPresenceAudience (PresenceAudienceRequest) returns (PresenceAudienceReply);
 }
 
 // GUID truyền dạng chuỗi vì Protobuf không có kiểu GUID.
@@ -17,3 +18,6 @@ message CheckMembershipRequest { string group_id = 1; string user_id = 2; }
 message CheckMembershipReply { bool is_member = 1; }
 message GetMemberIdsRequest { string group_id = 1; }
 message GetMemberIdsReply { repeated string user_ids = 1; }
+message PresenceAudienceRequest { string user_id = 1; }
+message PresenceAudienceGroup { string group_id = 1; repeated string user_ids = 2; }
+message PresenceAudienceReply { repeated PresenceAudienceGroup groups = 1; }

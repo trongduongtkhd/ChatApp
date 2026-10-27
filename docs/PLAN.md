@@ -17,6 +17,27 @@ Mỗi phần: giải thích trước → code từng bước → giải thích k
 | 11 | Bạn bè và nhắn tin riêng (chi tiết bên dưới) | Quan hệ 2 chiều lưu 1 dòng + máy trạng thái (Pending → Accepted/Declined/Cancelled, Accepted → Removed, mời lại), ID tất định theo cặp userId (UUID v5, chống tạo trùng), thứ tự sự kiện theo key trong 1 topic, idempotent consumer, eventual consistency | 2, 4, 5, 6 | A mời B → B chấp nhận → nhóm 2 người tự xuất hiện ở cả 2 bên; gửi lại cùng sự kiện / chấp nhận 2 lần → vẫn 1 nhóm; hủy kết bạn → mất chat riêng, kết bạn lại → thấy lịch sử cũ |
 | 12 | Chịu lỗi: Polly, Health Checks, Serilog + Seq | Retry, circuit breaker, timeout, health check, log tập trung | 8 | Tắt group-service → circuit breaker mở, log trong Seq |
 | 13 | Sao lưu: PostgreSQL replication, backup Hangfire, Redis AOF | Replication vs backup, restore, Kafka replay | 3, 7 | Tắt primary đọc replica; xóa nhầm rồi restore |
+| 11b | Công việc 1 đã duyệt: Presence Service, lease 60s/heartbeat 10s, trạng thái mọi bạn bè/nhóm, đang gõ, thu hồi phòng | gRPC theo lô, lease, Redis TIME/Lua, snapshot, Pub/Sub, SignalR, eventual consistency | 2, 3, 4, 5, 6, 8 | `chat-test.cs -- presence`, `-- presencekill`, `node scripts/presence-ui-test.cjs` |
+| 11c | Công việc 2 đã duyệt: MongoDB hai shard, transaction/Outbox, chuyển dữ liệu và lịch sử tuần | Hash sharding, transaction/counter, idempotency, lease/fencing, index/keyset, migration/backup | 2, 3, 4, 5, 6, 7, 8 | `scripts/test-chat-system.ps1`: 110 kiểm tra tích hợp và UI |
+| 11d | Công việc 3 đã duyệt: SystemAdmin, khóa tài khoản, role nhóm, phê duyệt và link mời | RBAC, gRPC nguồn quyền, version/revocation, transaction/row lock, state machine, random token/hash | 2, 3, 4, 5, 6, 8 | `scripts/test-admin-system.ps1`, chi tiết `docs/ADMIN.md` |
+
+Phần 11b bổ sung theo phê duyệt ngày 27/10/2026, tách khỏi Phần 12 (Polly/log tập trung) và Phần 13. Chi tiết DESIGN mục 8. Thực hiện: Contracts + Presence → gRPC audience → Chat heartbeat/relay/thu hồi → Angular toàn bộ bạn bè/nhóm + đang gõ → build và kiểm thử tích hợp/lỗi → tài liệu. MongoDB và admin chưa thuộc phạm vi này.
+
+## Phần 11c – Công việc 2 đã duyệt 27/10/2026
+- MongoDB hai shards thực, config replica set + mongos, index hash groupId và index lịch sử/tuần.
+- Transaction Mongo ghi key chống trùng toàn cục + counter + message + Outbox; Redis giữ Presence/cache/backplane.
+- Publisher Mongo lease/fencing theo conversation, ACK Kafka, at-least-once.
+- Chuyển legacy PostgreSQL có backup, batch idempotent, đối chiếu SHA-256 và marker trước startup.
+- Angular lịch sử tuần, bảo toàn unread/reconnect/chat riêng; Angular 12/Node 14.
+- Build và chạy tổng hợp 11b+11c: migration verify, Mongo persistence/faults, counter recovery, friends, presence/SIGKILL và UI.
+- MongoDB Driver 3.13.0, server 8.0.34; không thêm service nghiệp vụ hay npm package. Admin thuộc công việc 3.
+
+## Phần 11d – Công việc 3 đã duyệt 27/10/2026
+- Account state/role/version, seed admin, audit + API phân trang/khóa-mở khóa.
+- gRPC account access, middleware và thu hồi kết nối server; quyền Chat từ nguồn Group.
+- Owner/Admin/Member, chuyển Owner, requests, approval setting, invite link hash/rotation, transaction và Outbox.
+- Trang admin + panel nhóm + join link trên Angular 12.
+- Build, API/race/outage/UI, hồi quy 11b/11c; cập nhật tài liệu và cách demo.
 
 ## Phần 11 – Bạn bè và nhắn tin riêng
 Thiết kế chi tiết: DESIGN.md mục 3 (`friendships`, `groups.is_direct`), mục 4 (`identity.friendship-changed`), mục 5 (API bạn bè, quy tắc nhóm riêng).

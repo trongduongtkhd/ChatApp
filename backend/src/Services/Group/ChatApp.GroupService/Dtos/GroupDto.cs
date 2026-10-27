@@ -13,7 +13,8 @@ public record GroupDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset UpdatedAt,
     bool IsDirect,
-    PeerDto? Peer);
+    PeerDto? Peer,
+    bool RequiresApproval = false);
 
 // UserName/DisplayName null nếu bản sao user_snapshots chưa có người này (eventual consistency).
 public record PeerDto(Guid UserId, string? UserName, string? DisplayName);

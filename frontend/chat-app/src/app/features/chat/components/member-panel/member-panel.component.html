@@ -14,11 +14,23 @@
 
   <div class="mp-section">
     <span class="mp-label">Thành viên · {{ detail.members.length }}</span>
-    <button *ngIf="isOwner" class="ca-btn mp-add" [class.primary]="!adding" [class.secondary]="adding" type="button"
+    <button class="ca-btn mp-add" [class.primary]="!adding" [class.secondary]="adding" type="button"
             [attr.aria-expanded]="adding" (click)="toggleAdd()">
       <svg *ngIf="!adding" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg>
       {{ adding ? 'Xong' : 'Thêm' }}
     </button>
+  </div>
+
+  <div class="mp-governance">
+    <p class="ca-meta">Phê duyệt thành viên: {{ detail.group.requiresApproval ? 'Đang bật' : 'Đang tắt' }}</p>
+    <button *ngIf="isOwner" class="ca-btn secondary mp-add" type="button" [disabled]="busy" (click)="ask({kind: 'approval'})">{{ detail.group.requiresApproval ? 'Tắt phê duyệt' : 'Bật phê duyệt' }}</button>
+    <button *ngIf="isManager" class="ca-btn secondary mp-add" type="button" [disabled]="busy" (click)="ask({kind: 'invite'})">Tạo liên kết mời mới</button>
+    <div *ngIf="inviteUrl && isManager"><label class="ca-meta" for="group-invite-link">Liên kết mời vừa tạo</label><input id="group-invite-link" class="mp-invite" readonly [value]="inviteUrl" (click)="selectInvite($event)"><button class="ca-btn secondary mp-add" type="button" (click)="copyInvite()">Sao chép</button></div>
+    <p *ngIf="notice" class="ca-meta" role="status">{{ notice }}</p>
+    <ng-container *ngIf="isManager"><div class="mp-section" style="padding: 10px 0"><span class="mp-label">Chờ duyệt · {{ requests.length }}</span><button class="ca-btn secondary mp-add" type="button" (click)="loadRequests()" [disabled]="busy">Tải lại</button></div><p *ngIf="requestsError" class="ca-meta" role="alert">{{ requestsError }}</p>
+      <div *ngFor="let r of requests" class="mp-request"><strong>{{ r.displayName || r.userName || r.userId }}</strong><div class="ca-meta">{{ r.createdAt | date:'dd/MM HH:mm':'+0700' }}</div><button class="ca-btn primary mp-add" type="button" (click)="decide(r, true)" [disabled]="busy">Chấp nhận</button><button class="ca-btn secondary mp-add" type="button" (click)="decide(r, false)" [disabled]="busy">Từ chối</button></div>
+      <p *ngIf="!requests.length && !requestsError" class="ca-meta">Không có yêu cầu đang chờ.</p>
+    </ng-container>
   </div>
 
   <!-- Thêm thành viên: tìm trong user_snapshots (bản sao của group-service) -->
@@ -49,16 +61,13 @@
       <span class="txt">
         <div class="name">{{ nameOf(m) }}</div>
         <div class="prev">{{ statusOf(m) || ' ' }}</div>
+        <div class="ca-meta">{{ roleLabel(m) }}</div>
       </span>
-      <span *ngIf="m.role === 'Owner'" class="ca-chip">Trưởng nhóm</span>
-      <button *ngIf="isOwner && m.userId !== myId" class="ca-iconbtn ghost mp-remove" type="button"
-              [attr.aria-label]="'Xóa ' + nameOf(m) + ' khỏi nhóm'" (click)="ask({ kind: 'remove', member: m })">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
-      </button>
+      <select *ngIf="m.userId !== myId && (isOwner || canRemove(m))" class="mp-actions" [disabled]="busy" [attr.aria-label]="'Quản lý ' + nameOf(m)" (change)="memberAction(m, $event)"><option value="">⋯</option><option *ngIf="isOwner && m.role === 'Member'" value="promote">Bổ nhiệm quản trị viên</option><option *ngIf="isOwner && m.role === 'Admin'" value="demote">Miễn nhiệm quản trị viên</option><option *ngIf="isOwner" value="transfer">Chuyển trưởng nhóm</option><option *ngIf="canRemove(m)" value="remove">Xóa khỏi nhóm</option></select>
     </div>
   </div>
 
-  <div class="mp-note">Thành viên mới có thể mất khoảng 1 giây để được đồng bộ trước khi gửi tin.</div>
+  <div class="mp-note">{{ detail.group.requiresApproval && !isManager ? 'Người bạn thêm sẽ chờ trưởng nhóm hoặc quản trị viên duyệt.' : 'Thành viên được duyệt có thể mở và gửi tin trong nhóm.' }}</div>
 
   <div class="mp-foot">
     <button *ngIf="isOwner" class="ca-btn danger" type="button" (click)="ask({ kind: 'delete' })">Xóa nhóm</button>
@@ -67,5 +76,5 @@
 </aside>
 
 <app-confirm-dialog *ngIf="confirm" [title]="confirmTitle" [message]="confirmMessage"
-                    [confirmText]="confirm.kind === 'leave' ? 'Rời nhóm' : 'Xóa'" [busy]="busy" [error]="confirmError"
+                    [confirmText]="confirmText" [danger]="confirm.kind === 'delete' || confirm.kind === 'remove'" [busy]="busy" [error]="confirmError"
                     (confirm)="doConfirm()" (cancelled)="confirm = null"></app-confirm-dialog>

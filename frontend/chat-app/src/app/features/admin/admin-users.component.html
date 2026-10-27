@@ -1,0 +1,22 @@
+<h2>Người dùng</h2>
+<form class="admin-tools" (ngSubmit)="load(true)">
+  <input id="admin-user-search" name="query" type="search" maxlength="100" [(ngModel)]="q" placeholder="Tài khoản, tên hiển thị hoặc email" aria-label="Tìm người dùng">
+  <select name="locked" [(ngModel)]="locked" aria-label="Trạng thái tài khoản"><option value="">Tất cả trạng thái</option><option value="false">Đang hoạt động</option><option value="true">Đã khóa</option></select>
+  <button class="ca-btn primary" type="submit" [disabled]="loading">Tìm kiếm</button><button class="ca-btn secondary" type="button" (click)="load()" [disabled]="loading">Tải lại</button>
+</form>
+<p *ngIf="error" class="admin-error" role="alert">{{ error }}</p>
+<p *ngIf="loading" class="ca-meta" role="status">Đang tải…</p>
+<ng-container *ngIf="data">
+  <p class="ca-meta">{{ data.total }} tài khoản · Trang {{ page }}</p>
+  <div class="admin-table"><table><thead><tr><th>Người dùng</th><th>Email</th><th>Quyền hệ thống</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>
+    <tr *ngFor="let u of data.items"><td><span class="admin-name">{{ u.displayName }}</span><span class="ca-meta">{{ u.userName }}</span></td><td>{{ u.email }}</td><td>{{ u.systemRole === 'SystemAdmin' ? 'Quản trị hệ thống' : 'Người dùng' }}</td>
+      <td><span class="admin-status" [class.locked]="u.isLocked">{{ u.isLocked ? 'Đã khóa' : 'Đang hoạt động' }}</span></td><td><div class="admin-actions"><button class="ca-btn secondary" type="button" (click)="select(u)">Chi tiết</button><button *ngIf="u.id !== myId" class="ca-btn secondary" type="button" (click)="ask(u)">{{ u.isLocked ? 'Mở khóa' : 'Khóa' }}</button></div></td></tr>
+    <tr *ngIf="!data.items.length"><td colspan="5" class="admin-empty">Không tìm thấy tài khoản.</td></tr>
+  </tbody></table></div>
+  <div class="admin-pages"><button class="ca-btn secondary" type="button" [disabled]="page <= 1 || loading" (click)="page = page - 1; load()">Trang trước</button><button class="ca-btn secondary" type="button" [disabled]="page * data.pageSize >= data.total || loading" (click)="page = page + 1; load()">Trang sau</button></div>
+</ng-container>
+<section *ngIf="detail" class="admin-detail" aria-label="Chi tiết tài khoản"><div class="admin-heading"><h2>{{ detail.user.displayName }}</h2><button class="ca-btn secondary" type="button" (click)="detail = null">Đóng</button></div>
+  <dl><dt>Mã người dùng</dt><dd>{{ detail.user.id }}</dd><dt>Tài khoản</dt><dd>{{ detail.user.userName }}</dd><dt>Email</dt><dd>{{ detail.user.email }}</dd><dt>Ngày tạo</dt><dd>{{ detail.user.createdAt | date:'dd/MM/yyyy HH:mm':'+0700' }}</dd><dt>Trạng thái</dt><dd>{{ detail.user.isLocked ? 'Đã khóa' : 'Đang hoạt động' }}</dd><dt>Lý do khóa</dt><dd>{{ detail.user.lockReason || '—' }}</dd><dt>Người khóa</dt><dd>{{ detail.user.lockedBy || '—' }}</dd><dt>Thời điểm khóa</dt><dd>{{ detail.user.lockedAt ? (detail.user.lockedAt | date:'dd/MM/yyyy HH:mm':'+0700') : '—' }}</dd></dl>
+  <h3>Thao tác gần đây</h3><p *ngIf="!detail.audit.length" class="ca-meta">Chưa có thao tác quản trị.</p><p *ngFor="let a of detail.audit" class="ca-meta">{{ a.createdAt | date:'dd/MM/yyyy HH:mm':'+0700' }} · {{ a.action === 'Locked' ? 'Khóa' : 'Mở khóa' }} · {{ a.reason || 'Không có ghi chú' }} · {{ a.actorId }}</p>
+</section>
+<div *ngIf="target" class="ca-scrim" (click)="!busy && (target = null)"><section class="ca-dialog admin-dialog" role="dialog" aria-modal="true" aria-labelledby="lock-title" (click)="$event.stopPropagation()"><div class="ca-dialog-head"><h2 id="lock-title">{{ target.isLocked ? 'Mở khóa tài khoản?' : 'Khóa tài khoản?' }}</h2></div><div class="ca-dialog-body"><p>{{ target.displayName }} · {{ target.userName }}</p><p class="ca-meta">{{ target.isLocked ? 'Người dùng cần đăng nhập lại sau khi mở khóa.' : 'Các phiên đăng nhập sẽ bị thu hồi. Lịch sử và nhóm được giữ lại.' }}</p><label for="lock-reason">{{ target.isLocked ? 'Ghi chú' : 'Lý do khóa (bắt buộc)' }}</label><textarea id="lock-reason" [(ngModel)]="reason" maxlength="500" rows="3" [disabled]="busy"></textarea><p *ngIf="dialogError" role="alert">{{ dialogError }}</p></div><div class="ca-dialog-foot"><button class="ca-btn secondary" type="button" (click)="target = null" [disabled]="busy">Hủy</button><button class="ca-btn primary" type="button" (click)="confirm()" [disabled]="busy || (!target.isLocked && !reason.trim())">{{ busy ? 'Đang xử lý…' : 'Xác nhận' }}</button></div></section></div>

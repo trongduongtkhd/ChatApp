@@ -90,7 +90,8 @@ export class AuthService {
     return {
       id: claims.sub,
       userName: claims.name,
-      displayName: claims.display_name || claims.name
+      displayName: claims.display_name || claims.name,
+      systemRole: claims.system_role === 'SystemAdmin' ? 'SystemAdmin' : 'User'
     };
   }
 }

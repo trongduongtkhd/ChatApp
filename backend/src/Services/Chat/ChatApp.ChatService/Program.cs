@@ -5,25 +5,33 @@ using ChatApp.ChatService.Messaging;
 using ChatApp.ChatService.Services;
 using ChatApp.Common.Auth;
 using ChatApp.Common.Kafka;
-using ChatApp.Common.Outbox;
 using ChatApp.Contracts.Grpc;
-using Microsoft.EntityFrameworkCore;
 using StackExchange.Redis;
+using Microsoft.AspNetCore.SignalR;
+using ChatApp.ChatService.Data.LegacyImport;
 
 var builder = WebApplication.CreateBuilder(args);
+if (args.Contains("--migrate-chat"))
+{
+    await ChatHistoryMigration.RunAsync(builder.Configuration, args);
+    return;
+}
 
-// Connection string lấy từ cấu hình: user-secrets khi chạy local, biến môi trường khi chạy Docker.
-builder.Services.AddDbContext<ChatDbContext>(options =>
-    options
-        .UseNpgsql(builder.Configuration.GetConnectionString("ChatDb"))
-        .UseSnakeCaseNamingConvention());
+// MongoClient singleton; ChatDb PostgreSQL chỉ được công cụ --migrate-chat đọc.
+builder.Services.AddSingleton<MongoChatStore>();
 
 // Cùng code kiểm tra JWT với Gateway và các service khác (ChatApp.Common), cùng secret trong kho chung.
 // Hub SignalR (Bước 2) nhận token qua ?access_token= nhờ OnMessageReceived trong Common.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+builder.Services.AddRemoteAccountAccess();
+builder.Services.AddSingleton<AccountConnections>();
+builder.Services.AddSingleton<AccountHubFilter>();
+builder.Services.AddHostedService<AccountConnectionMonitor>();
+builder.Services.AddScoped<IAccountRevocationHandler, AccountRevocationHandler>();
 
-// Kafka producer + OutboxPublisher (BackgroundService) đẩy outbox_messages của chat_db lên Kafka.
-builder.Services.AddChatAppOutbox<ChatDbContext>(builder.Configuration);
+// Mongo Outbox theo conversation: 2 publisher dùng lease/fencing, Kafka luôn nhận cả online/offline.
+builder.Services.AddChatAppKafkaProducer(builder.Configuration);
+builder.Services.AddHostedService<MongoOutboxPublisher>();
 
 // Redis: MỘT kết nối dùng chung cho cả service (Singleton). ConnectionMultiplexer an toàn đa luồng,
 // tự ghép nhiều lệnh từ nhiều request lên cùng một kết nối TCP → không mở kết nối mới mỗi request.
@@ -54,7 +62,7 @@ builder.Services.AddControllers();
 // → Người nối vào bản 1 nhận được tin gửi ở bản 2.
 // Công tắc SignalR:RedisBackplane chỉ để demo "tắt backplane" (docker: biến CHAT_BACKPLANE=false). Chạy thật luôn bật.
 var useBackplane = builder.Configuration.GetValue("SignalR:RedisBackplane", true);
-var signalR = builder.Services.AddSignalR();
+var signalR = builder.Services.AddSignalR(o => o.AddFilter<AccountHubFilter>());
 if (useBackplane)
 {
     signalR.AddStackExchangeRedis(redisConnection, o =>
@@ -67,12 +75,19 @@ if (useBackplane)
     });
 }
 
-// SequenceGenerator, MessageService dùng DbContext (Scoped: mỗi lần gọi hub một scope) → Scoped.
+// Logic lưu tin Scoped; MongoClient/store singleton, session/transaction riêng từng lần gửi.
 builder.Services.AddScoped<SequenceGenerator>();
 builder.Services.AddScoped<MessageService>();
 builder.Services.AddScoped<GroupMemberCache>();
 // Chỉ giữ IConnectionMultiplexer (Singleton) → Singleton được.
-builder.Services.AddSingleton<PresenceTracker>();
+builder.Services.AddGrpcClient<ChatApp.Contracts.Grpc.Presence.PresenceClient>(o =>
+    o.Address = new Uri(builder.Configuration["GrpcServices:PresenceService"]!));
+builder.Services.AddGrpcClient<FriendPresence.FriendPresenceClient>(o =>
+    o.Address = new Uri(builder.Configuration["GrpcServices:IdentityService"]!));
+builder.Services.AddSingleton<PresenceCoordinator>();
+builder.Services.AddSingleton<TypingTracker>();
+builder.Services.AddHostedService<PresenceRelay>();
+builder.Services.AddHostedService<MembershipRoomMonitor>();
 
 // Consumer Kafka chạy nền (consumer group "chat-service"): thành viên thay đổi → xóa cache group:members:{groupId}.
 builder.Services.AddChatAppKafkaConsumer<MemberAddedConsumer>(builder.Configuration);
@@ -80,12 +95,8 @@ builder.Services.AddChatAppKafkaConsumer<MemberRemovedConsumer>(builder.Configur
 
 var app = builder.Build();
 
-// Tự áp migration khi khởi động.
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-    await db.Database.MigrateAsync();
-}
+// Chặn mở API trước khi dữ liệu cũ được đối chiếu; không tự import trong tiến trình phục vụ HTTP.
+await app.Services.GetRequiredService<MongoChatStore>().EnsureReadyAsync();
 
 // Mở kết nối Redis ngay lúc khởi động (thay vì đợi request đầu tiên) để thấy trạng thái trong log.
 var redis = app.Services.GetRequiredService<IConnectionMultiplexer>();
@@ -97,12 +108,13 @@ app.Logger.LogInformation("SignalR Redis Backplane: {State}", useBackplane
     : "TẮT → tin chỉ tới các kết nối nằm trên bản này");
 
 app.UseAuthentication();
+app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapGet("/", () => "ChatApp.ChatService is running");
 app.MapControllers();
 
 // Hub SignalR: client kết nối ws://.../hubs/chat (qua Gateway). Thay cho endpoint tạm /debug/membership của Phần 6.
-app.MapHub<ChatHub>("/hubs/chat");
+app.MapHub<ChatHub>("/hubs/chat", o => o.CloseOnAuthenticationExpiration = true);
 
 app.Run();

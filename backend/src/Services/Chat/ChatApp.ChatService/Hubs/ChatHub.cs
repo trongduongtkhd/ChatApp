@@ -4,6 +4,7 @@ using ChatApp.Common.Auth;
 using Grpc.Core;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
+using MongoDB.Driver;
 
 namespace ChatApp.ChatService.Hubs;
 
@@ -19,78 +20,80 @@ namespace ChatApp.ChatService.Hubs;
 public class ChatHub(
     GroupMemberCache members,
     MessageService messages,
-    PresenceTracker presence,
+    PresenceCoordinator presence,
+    TypingTracker typing,
+    ChatApp.ChatService.Grpc.GroupMembershipClient groupSource,
     ILogger<ChatHub> logger) : Hub<IChatClient>
 {
     private const int MaxContentLength = 4000;
-    // Khóa trong Context.Items: các phòng mà KẾT NỐI NÀY đã vào (để báo offline khi ngắt kết nối).
-    private const string JoinedRoomsKey = "joined-rooms";
 
     // "Phòng" SignalR của một nhóm chat. Tên phòng = groupId.
     // Phòng chỉ là danh sách ConnectionId do SignalR giữ trong bộ nhớ của bản chat-service này.
     // Redis Backplane (Program.cs) làm cho lệnh gửi tới phòng có hiệu lực trên MỌI bản: mỗi bản đẩy cho kết nối của mình.
     public static string RoomName(Guid groupId) => groupId.ToString();
 
-    // Context.Items: "túi đồ" riêng của MỘT kết nối, sống từ lúc kết nối tới lúc ngắt, nằm trong RAM của bản đang giữ
-    // kết nối đó. Khác field của hub (mỗi lần gọi method là một đối tượng ChatHub mới, field mất hết).
-    private HashSet<Guid> JoinedRooms => (HashSet<Guid>)Context.Items[JoinedRoomsKey]!;
 
     // SignalR gọi khi một kết nối mới mở xong (đã qua [Authorize]).
     public override async Task OnConnectedAsync()
     {
-        Context.Items[JoinedRoomsKey] = new HashSet<Guid>();
         var userId = Context.User!.GetUserId();
-        var connections = await presence.ConnectedAsync(userId, Context.ConnectionId);
-        logger.LogInformation("User {UserId} kết nối {ConnectionId} (đang có {Count} kết nối)",
-            userId, Context.ConnectionId, connections);
+        presence.Connect(Context.ConnectionId, userId);
+        // Không chờ Presence: service này hỏng không được làm kết nối chat thất bại.
+        logger.LogInformation("User {UserId} kết nối {ConnectionId}", userId, Context.ConnectionId);
         await base.OnConnectedAsync();
     }
 
     // SignalR gọi khi kết nối đóng: client tự đóng, mất mạng (hết thời gian chờ ping), hoặc server tắt đúng cách.
-    // KHÔNG được gọi nếu tiến trình chat-service bị giết đột ngột → presence:{userId} còn ConnectionId "ma" (xem báo cáo).
-    // SignalR tự gỡ kết nối khỏi mọi phòng, ta chỉ lo phần presence.
+    // Nếu tiến trình bị kill, Presence Service vẫn dọn lease. Transport mất không thu hồi ngay
+    // để người dùng có thời gian reconnect; logout chủ động gọi EndSession.
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var userId = Context.User!.GetUserId();
-        var nowOffline = await presence.DisconnectedAsync(userId, Context.ConnectionId);
-        logger.LogInformation("User {UserId} ngắt kết nối {ConnectionId}{Offline}",
-            userId, Context.ConnectionId, nowOffline ? " → OFFLINE" : " (vẫn còn kết nối khác)");
-
-        // Chỉ báo offline khi đây là kết nối cuối cùng. Đóng 1 trong 2 tab → không báo gì.
-        if (nowOffline)
-        {
-            foreach (var groupId in JoinedRooms)
-                await Clients.Group(RoomName(groupId)).UserPresenceChanged(userId, false);
-        }
+        presence.Disconnect(Context.ConnectionId);
+        typing.Remove(Context.ConnectionId);
+        logger.LogInformation("User {UserId} ngắt {ConnectionId}; chờ lease hết hạn nếu không reconnect", userId, Context.ConnectionId);
         await base.OnDisconnectedAsync(exception);
     }
 
     // Vào phòng của nhóm để bắt đầu nhận ReceiveMessage. Chỉ thành viên mới được vào (nếu không, người ngoài nghe lén được).
-    // Trả về danh sách userId thành viên ĐANG online (kể cả mình) → client vẽ chấm xanh ngay khi mở nhóm;
-    // về sau chỉ cần nghe UserPresenceChanged để cập nhật.
-    public async Task<IReadOnlyList<Guid>> JoinGroup(Guid groupId)
+    // PresenceSnapshot độc lập với phòng đang mở, được cập nhật bởi Heartbeat.
+    public async Task JoinGroup(Guid groupId)
     {
         await EnsureMemberAsync(groupId);
         await Groups.AddToGroupAsync(Context.ConnectionId, RoomName(groupId));
-        JoinedRooms.Add(groupId);
+        presence.TrackRoom(Context.ConnectionId, groupId);
 
         var userId = Context.User!.GetUserId();
         logger.LogInformation("User {UserId} (connection {ConnectionId}) vào phòng {GroupId}",
             userId, Context.ConnectionId, groupId);
 
-        // Báo những người đang trong phòng (trừ chính kết nối này) là mình online.
-        // Nếu mình đã online từ trước (tab khác) thì họ nhận báo lặp → vô hại, client chỉ đặt lại cờ online = true.
-        await Clients.OthersInGroup(RoomName(groupId)).UserPresenceChanged(userId, true);
-
-        var memberIds = await members.GetMemberIdsAsync(groupId, Context.ConnectionAborted);
-        return await presence.GetOnlineAsync(memberIds);
     }
 
     // Rời phòng: không nhận tin của nhóm nữa (vd chuyển sang mở nhóm khác). Không cần kiểm tra thành viên.
     public async Task LeaveGroup(Guid groupId)
     {
         await Groups.RemoveFromGroupAsync(Context.ConnectionId, RoomName(groupId));
-        JoinedRooms.Remove(groupId);
+        presence.LeaveRoom(Context.ConnectionId, groupId);
+    }
+
+    public Task Heartbeat() => presence.HeartbeatAsync(Context.ConnectionId);
+
+    public async Task EndSession()
+    {
+        await presence.EndAsync(Context.ConnectionId);
+        Context.Abort();
+    }
+
+    public async Task SetTyping(Guid groupId, bool isTyping)
+    {
+        if (!presence.InRoom(Context.ConnectionId, groupId))
+            throw new HubException("Bạn chưa mở cuộc trò chuyện này.");
+        if (isTyping && !typing.Allow(Context.ConnectionId)) return;
+        // Đọc nguồn quyền hiện tại, không dùng cache thành viên cũ cho chức năng mới.
+        var allowed = await groupSource.IsMemberAsync(groupId, Context.User!.GetUserId(), Context.ConnectionAborted);
+        if (!allowed) throw new HubException("Bạn không còn là thành viên.");
+        var name = Context.User!.GetDisplayName();
+        await Clients.OthersInGroup(RoomName(groupId)).TypingChanged(groupId, Context.User!.GetUserId(), name, isTyping);
     }
 
     // Gửi tin (DESIGN mục 6). messageId do client sinh. Trả về tin đã lưu (có sequenceNumber) cho người gửi
@@ -110,10 +113,18 @@ public class ChatHub(
 
         var user = Context.User!;
         var displayName = user.GetDisplayName();
-        var result = await messages.SendAsync(
-            messageId, groupId, user.GetUserId(),
-            string.IsNullOrEmpty(displayName) ? user.GetUserName() : displayName,
-            content, Context.ConnectionAborted);
+        SendMessageResult result;
+        try
+        {
+            result = await messages.SendAsync(messageId, groupId, user.GetUserId(),
+                string.IsNullOrEmpty(displayName) ? user.GetUserName() : displayName,
+                content, Context.ConnectionAborted);
+        }
+        catch (Exception ex) when (ex is MongoException or TimeoutException or OperationCanceledException)
+        {
+            logger.LogWarning("Chưa xác nhận lưu tin {MessageId}: {Error}", messageId, ex.Message);
+            throw new HubException("Chưa xác nhận lưu tin. Hãy thử gửi lại cùng tin nhắn.");
+        }
 
         switch (result.Status)
         {
@@ -131,8 +142,7 @@ public class ChatHub(
         return result.Message!;
     }
 
-    // Hỏi cache Redis group:members:{groupId} trước; cache trống mới gọi gRPC tới group-service.
-    // Thêm/xóa thành viên → có hiệu lực sau ~1–2 giây (chờ sự kiện Kafka xóa cache).
+    // Công việc 3: hỏi quyền hiện tại từ Group gRPC, không chờ Kafka xóa cache.
     private async Task EnsureMemberAsync(Guid groupId)
     {
         var userId = Context.User!.GetUserId();

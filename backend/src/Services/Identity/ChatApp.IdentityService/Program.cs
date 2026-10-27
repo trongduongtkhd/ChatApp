@@ -2,10 +2,12 @@ using ChatApp.Common.Auth;
 using ChatApp.Common.Outbox;
 using ChatApp.IdentityService.Data;
 using ChatApp.IdentityService.Services;
+using ChatApp.IdentityService.Grpc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddGrpc();
 
 // Connection string lấy từ cấu hình: user-secrets khi chạy local, biến môi trường khi chạy Docker.
 builder.Services.AddDbContext<IdentityDbContext>(options =>
@@ -15,6 +17,7 @@ builder.Services.AddDbContext<IdentityDbContext>(options =>
 
 // Kiểm tra JWT (dùng chung với các service khác) + đăng ký JwtOptions để JwtTokenService tạo token.
 builder.Services.AddChatAppJwtAuthentication(builder.Configuration);
+builder.Services.AddScoped<IAccountAccessReader, LocalAccountAccessReader>();
 
 // Kafka producer + OutboxPublisher (BackgroundService) đẩy outbox_messages của identity_db lên Kafka.
 builder.Services.AddChatAppOutbox<IdentityDbContext>(builder.Configuration);
@@ -48,6 +51,7 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
     await db.Database.MigrateAsync();
+    await AdminSeeder.RunAsync(db, app.Configuration, app.Logger);
 }
 
 if (app.Environment.IsDevelopment())
@@ -58,9 +62,12 @@ if (app.Environment.IsDevelopment())
 
 // Thứ tự quan trọng: xác thực (bạn là ai) trước, phân quyền (được làm gì) sau.
 app.UseAuthentication();
+app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
 
 app.MapGet("/", () => "ChatApp.IdentityService is running");
-app.MapControllers();
+app.MapControllers().RequireHost("*:5001");
+app.MapGrpcService<FriendPresenceGrpcService>().RequireHost("*:5011");
+app.MapGrpcService<AccountAccessGrpcService>().RequireHost("*:5011");
 
 app.Run();

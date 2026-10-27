@@ -4,6 +4,7 @@ import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import { distinctUntilChanged, filter, map, take } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import { Message } from '../models/message';
+import { PresenceSnapshot, TypingNotice } from '../models/presence';
 import { buildHubConnection } from '../utils/hub-connection';
 import { AuthService } from './auth.service';
 import { TokenStorageService } from './token-storage.service';
@@ -25,7 +26,7 @@ export class SendError extends Error {
   }
 }
 
-// Ai đang online trong nhóm đang mở (snapshot từ JoinGroup + cập nhật bằng UserPresenceChanged).
+// Adapter cho khung chat: trạng thái toàn cục, giới hạn hiển thị bằng thành viên của phòng.
 export interface GroupPresence {
   groupId: string;
   online: ReadonlySet<string>;
@@ -48,6 +49,34 @@ export class ChatHubService {
   private readonly messageSubject = new Subject<Message>();
   private readonly presenceSubject = new BehaviorSubject<GroupPresence | null>(null);
   private readonly reconnectedSubject = new Subject<void>();
+  private readonly activitySubject = new BehaviorSubject<PresenceSnapshot | null>(null);
+  private readonly typingSubject = new BehaviorSubject<TypingNotice[]>([]);
+  private readonly revokedSubject = new Subject<string>();
+  private heartbeatTimer?: ReturnType<typeof setTimeout>;
+  private staleTimer?: ReturnType<typeof setTimeout>;
+  private typingTimer?: ReturnType<typeof setInterval>;
+  private readonly typers = new Map<string, { notice: TypingNotice; until: number }>();
+  private heartbeatSeconds = 10;
+  private readonly pulses = new WeakSet<HubConnection>();
+  private snapshotVersion = 0;
+  private lastTypingAt = 0;
+  readonly activity$ = this.activitySubject.asObservable();
+  readonly typing$ = this.typingSubject.asObservable();
+  readonly revoked$ = this.revokedSubject.asObservable();
+
+  get activity(): PresenceSnapshot | null { return this.activitySubject.value; }
+
+  setTyping(groupId: string, active: boolean): void {
+    if (groupId !== this.currentGroup || this.connection?.state !== HubConnectionState.Connected) return;
+    if (active && Date.now() - this.lastTypingAt < 2000) return;
+    this.lastTypingAt = active ? Date.now() : 0;
+    this.invokeSafe('SetTyping', groupId, active);
+  }
+
+  refreshActivity(): void {
+    const connection = this.connection;
+    if (connection?.state === HubConnectionState.Connected) this.pulse(connection);
+  }
 
   readonly state$: Observable<HubState> = this.stateSubject.pipe(distinctUntilChanged());
   // Dải trạng thái trên giao diện. Giữ ở service (không ở component) để đổi nhóm không làm mất trạng thái.
@@ -63,6 +92,10 @@ export class ChatHubService {
     private readonly storage: TokenStorageService,
     private readonly zone: NgZone
   ) {
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.refreshActivity();
+    });
+    window.addEventListener('online', () => this.refreshActivity());
     auth.currentUser$.pipe(map(u => u?.id ?? null), distinctUntilChanged()).subscribe(userId => {
       if (userId) {
         this.start();
@@ -76,10 +109,12 @@ export class ChatHubService {
   // kết nối xong sẽ tự JoinGroup (xem onConnected).
   joinGroup(groupId: string): void {
     if (this.currentGroup && this.currentGroup !== groupId) {
+      this.setTyping(this.currentGroup, false);
       this.invokeSafe('LeaveGroup', this.currentGroup);
     }
     this.currentGroup = groupId;
-    this.presenceSubject.next({ groupId, online: new Set() });
+    this.clearTyping();
+    this.publishGroupPresence();
     if (this.connection?.state === HubConnectionState.Connected) {
       this.invokeJoin(groupId);
     }
@@ -110,6 +145,8 @@ export class ChatHubService {
     if (this.currentGroup !== groupId) {
       return;
     }
+    this.setTyping(groupId, false);
+    this.clearTyping();
     this.currentGroup = null;
     this.presenceSubject.next(null);
     this.invokeSafe('LeaveGroup', groupId);
@@ -123,9 +160,31 @@ export class ChatHubService {
     const connection = buildHubConnection(`${environment.hubUrl}/chat`, () => this.storage.getToken(), () => this.sessionExpired());
 
     // Callback của SignalR: đưa về NgZone để Angular biết mà vẽ lại giao diện.
-    connection.on('ReceiveMessage', (m: Message) => this.zone.run(() => this.messageSubject.next(m)));
-    connection.on('UserPresenceChanged', (userId: string, isOnline: boolean) =>
-      this.zone.run(() => this.applyPresence(userId, isOnline)));
+    connection.on('ReceiveMessage', (m: Message) => this.zone.run(() => {
+      if (this.connection === connection) this.messageSubject.next(m);
+    }));
+    connection.on('PresenceSnapshot', (snapshot: PresenceSnapshot) => this.zone.run(() => {
+      if (this.connection !== connection || snapshot.version <= this.snapshotVersion) return;
+      this.snapshotVersion = snapshot.version;
+      this.heartbeatSeconds = snapshot.heartbeatSeconds;
+      this.activitySubject.next(snapshot);
+      this.publishGroupPresence();
+      clearTimeout(this.staleTimer);
+      this.zone.runOutsideAngular(() => {
+        this.staleTimer = setTimeout(() => this.zone.run(() => this.markUnknown()), snapshot.leaseSeconds * 1000);
+      });
+    }));
+    connection.on('TypingChanged', (groupId: string, userId: string, displayName: string, isTyping: boolean) => this.zone.run(() => {
+      if (this.connection !== connection || groupId !== this.currentGroup || userId === this.auth.currentUser?.id) return;
+      if (isTyping) this.typers.set(userId, { notice: { groupId, userId, displayName, isTyping }, until: Date.now() + 5000 });
+      else this.typers.delete(userId);
+      this.emitTyping();
+    }));
+    connection.on('GroupAccessRevoked', (groupId: string) => this.zone.run(() => {
+      if (this.connection !== connection) return;
+      if (this.currentGroup === groupId) this.leaveGroup(groupId);
+      this.revokedSubject.next(groupId);
+    }));
     // Bỏ qua callback của kết nối cũ (vd onclose do chính stop() khi đăng xuất gây ra).
     const mine = (fn: () => void) => () => this.zone.run(() => {
       if (this.connection === connection) {
@@ -153,7 +212,9 @@ export class ChatHubService {
   private connect(connection: HubConnection, attempt: number): void {
     this.setState('connecting');
     connection.start()
-      .then(() => this.zone.run(() => this.onConnected()))
+      .then(() => this.zone.run(() => {
+        if (this.connection === connection) this.onConnected();
+      }))
       .catch(err => this.zone.run(() => {
         if (this.connection !== connection) {
           return; // đã đăng xuất trong lúc đang kết nối (kể cả do accessTokenFactory báo hết hạn)
@@ -189,6 +250,13 @@ export class ChatHubService {
   private onConnected(): void {
     const isReconnect = this.everConnected;
     this.setState('connected');
+    this.snapshotVersion = 0;
+    this.markUnknown();
+    this.pulse(this.connection!);
+    clearInterval(this.typingTimer);
+    this.zone.runOutsideAngular(() => {
+      this.typingTimer = setInterval(() => this.zone.run(() => this.emitTyping()), 1000);
+    });
     if (this.currentGroup) {
       this.invokeJoin(this.currentGroup);
     }
@@ -199,6 +267,12 @@ export class ChatHubService {
 
   // Mọi thay đổi trạng thái đi qua đây để tính luôn dải trạng thái (banner).
   private setState(state: HubState): void {
+    if (state !== 'connected') {
+      clearTimeout(this.heartbeatTimer);
+      clearInterval(this.typingTimer);
+      this.markUnknown();
+      this.clearTyping();
+    }
     this.stateSubject.next(state);
     const banner = this.bannerSubject.value;
     clearTimeout(this.bannerTimer);
@@ -228,6 +302,11 @@ export class ChatHubService {
   }
 
   private stop(): void {
+    clearTimeout(this.heartbeatTimer);
+    clearTimeout(this.staleTimer);
+    clearInterval(this.typingTimer);
+    this.clearTyping();
+    this.activitySubject.next(null);
     clearTimeout(this.startTimer);
     clearTimeout(this.bannerTimer);
     const connection = this.connection;
@@ -237,34 +316,68 @@ export class ChatHubService {
     this.presenceSubject.next(null);
     this.stateSubject.next('disconnected');
     this.bannerSubject.next('none'); // đăng xuất là chủ động, không phải sự cố → không hiện dải
-    connection?.stop();
+    // Kết nối giữ JWT đã xác thực nên vẫn thu hồi được dù storage vừa bị xóa khi logout.
+    if (connection?.state === HubConnectionState.Connected) {
+      withTimeout(connection.invoke('EndSession'), 2500).catch(() => undefined).then(() => connection.stop());
+    } else {
+      connection?.stop();
+    }
   }
 
-  // JoinGroup trả về danh sách userId thành viên đang online (snapshot ban đầu, Phần 7).
+  // Vào phòng chỉ đăng ký nhận tin; trạng thái online lấy qua PresenceSnapshot.
   private invokeJoin(groupId: string): void {
-    this.connection!.invoke<string[]>('JoinGroup', groupId)
-      .then(ids => this.zone.run(() => {
+    this.connection!.invoke('JoinGroup', groupId)
+      .then(() => this.zone.run(() => {
         if (this.currentGroup === groupId) {
-          this.presenceSubject.next({ groupId, online: new Set(ids) });
+          this.publishGroupPresence();
         }
       }))
       // Không phải thành viên → HubException. Màn 403 đã do REST lịch sử báo, ở đây chỉ ghi log.
       .catch(err => console.warn('[chat-hub] JoinGroup thất bại', err));
   }
 
-  // Sau JoinGroup chỉ nhận THAY ĐỔI (delta). Presence là của user (còn ≥ 1 kết nối), không riêng nhóm nào.
-  private applyPresence(userId: string, isOnline: boolean): void {
-    const current = this.presenceSubject.value;
-    if (!current) {
-      return;
+  private publishGroupPresence(): void {
+    const snapshot = this.activitySubject.value;
+    this.presenceSubject.next(this.currentGroup ? {
+      groupId: this.currentGroup,
+      online: new Set(snapshot?.known ? snapshot.onlineUserIds : [])
+    } : null);
+  }
+
+  private markUnknown(): void {
+    const previous = this.activitySubject.value;
+    this.activitySubject.next(previous ? { ...previous, known: false, onlineUserIds: [], onlineCountsByGroup: {} } : null);
+    this.publishGroupPresence();
+  }
+
+  private pulse(connection: HubConnection): void {
+    if (this.connection !== connection || connection.state !== HubConnectionState.Connected || this.pulses.has(connection)) return;
+    clearTimeout(this.heartbeatTimer);
+    this.pulses.add(connection);
+    withTimeout(connection.invoke('Heartbeat'), 10000)
+      .catch(() => this.zone.run(() => {
+        if (this.connection === connection) this.markUnknown();
+      }))
+      .finally(() => {
+        this.pulses.delete(connection);
+        if (this.connection === connection && connection.state === HubConnectionState.Connected) {
+          this.zone.runOutsideAngular(() => {
+            this.heartbeatTimer = setTimeout(() => this.pulse(connection), this.heartbeatSeconds * 1000);
+          });
+        }
+      });
+  }
+
+  private clearTyping(): void {
+    this.typers.clear();
+    this.typingSubject.next([]);
+  }
+
+  private emitTyping(): void {
+    for (const [id, entry] of this.typers) {
+      if (entry.until <= Date.now()) this.typers.delete(id);
     }
-    const online = new Set(current.online); // Set mới → component OnPush nhận ra thay đổi
-    if (isOnline) {
-      online.add(userId);
-    } else {
-      online.delete(userId);
-    }
-    this.presenceSubject.next({ groupId: current.groupId, online });
+    this.typingSubject.next(Array.from(this.typers.values()).map(t => t.notice));
   }
 
   private async sendLoop(messageId: string, groupId: string, content: string): Promise<Message> {

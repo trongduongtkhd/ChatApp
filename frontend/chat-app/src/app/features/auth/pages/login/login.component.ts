@@ -1,7 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { Component } from '@angular/core';
 import { FormBuilder, Validators } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { finalize } from 'rxjs/operators';
 import { AuthService } from '../../../../core/services/auth.service';
 
@@ -24,7 +24,8 @@ export class LoginComponent {
   constructor(
     private readonly fb: FormBuilder,
     private readonly auth: AuthService,
-    private readonly router: Router
+    private readonly router: Router,
+    private readonly route: ActivatedRoute
   ) {}
 
   invalid(name: string): boolean {
@@ -42,7 +43,11 @@ export class LoginComponent {
     this.auth.login(this.form.value)
       .pipe(finalize(() => (this.loading = false)))
       .subscribe({
-        next: () => this.router.navigate(['/chat']),
+        next: user => {
+          const back = this.route.snapshot.queryParamMap.get('returnUrl') || '';
+          this.router.navigateByUrl(/^\/groups\/join\/[a-f0-9]{48}$/.test(back) ? back
+            : user.systemRole === 'SystemAdmin' ? '/admin/users' : '/chat');
+        },
         error: (err: HttpErrorResponse) => (this.error = this.describe(err))
       });
   }

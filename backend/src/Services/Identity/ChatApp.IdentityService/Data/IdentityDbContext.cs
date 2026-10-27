@@ -7,6 +7,7 @@ namespace ChatApp.IdentityService.Data;
 public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : DbContext(options)
 {
     public DbSet<User> Users => Set<User>();
+    public DbSet<AccountAudit> AccountAudits => Set<AccountAudit>();
 
     public DbSet<Friendship> Friendships => Set<Friendship>();
 
@@ -27,6 +28,18 @@ public class IdentityDbContext(DbContextOptions<IdentityDbContext> options) : Db
             // Unique index là chốt chặn cuối khi 2 request đăng ký cùng tên đến cùng lúc.
             user.HasIndex(u => u.UserName).IsUnique();
             user.HasIndex(u => u.Email).IsUnique();
+            user.Property(u => u.SystemRole).HasMaxLength(20).HasDefaultValue("User");
+            user.Property(u => u.IsLocked).HasDefaultValue(false);
+            user.Property(u => u.AuthVersion).HasDefaultValue(0L);
+            user.Property(u => u.LockReason).HasMaxLength(500);
+            user.ToTable(t => t.HasCheckConstraint("ck_users_system_role", "system_role IN ('User', 'SystemAdmin')"));
+        });
+        modelBuilder.Entity<AccountAudit>(audit =>
+        {
+            audit.HasKey(a => a.Id);
+            audit.Property(a => a.Action).HasMaxLength(40);
+            audit.Property(a => a.Reason).HasMaxLength(500);
+            audit.HasIndex(a => new { a.TargetId, a.CreatedAt });
         });
 
         modelBuilder.Entity<Friendship>(friendship =>

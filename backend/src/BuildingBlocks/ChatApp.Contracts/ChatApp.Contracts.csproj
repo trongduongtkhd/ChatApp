@@ -22,6 +22,8 @@
     <!-- Both = sinh cả GroupMembershipBase (group-service kế thừa làm server)
          lẫn GroupMembershipClient (chat-service dùng để gọi). Một hợp đồng, hai phía dùng chung. -->
     <Protobuf Include="Protos\group_membership.proto" GrpcServices="Both" />
+    <Protobuf Include="Protos\presence.proto" GrpcServices="Both" />
+    <Protobuf Include="Protos\account_access.proto" GrpcServices="Both" />
   </ItemGroup>
 
 </Project>

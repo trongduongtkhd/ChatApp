@@ -70,7 +70,7 @@ public class AuthService(IdentityDbContext db, JwtTokenService jwtTokenService)
 
         // BCrypt đọc salt + cost từ chuỗi hash đã lưu, băm lại mật khẩu nhập vào rồi so sánh.
         var passwordOk = BCrypt.Net.BCrypt.Verify(request.Password, user?.PasswordHash ?? DummyHash);
-        if (user is null || !passwordOk)
+        if (user is null || !passwordOk || user.IsLocked)
             return null;
 
         var (token, expiresAt) = jwtTokenService.CreateToken(user);
@@ -84,5 +84,5 @@ public class AuthService(IdentityDbContext db, JwtTokenService jwtTokenService)
     }
 
     private static UserDto ToDto(User user) =>
-        new(user.Id, user.UserName, user.Email, user.DisplayName, user.CreatedAt);
+        new(user.Id, user.UserName, user.Email, user.DisplayName, user.CreatedAt, user.SystemRole);
 }

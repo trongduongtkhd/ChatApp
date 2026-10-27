@@ -10,5 +10,7 @@ public interface IChatClient
     Task ReceiveMessage(MessageDto message);
 
     // Gửi tới các phòng mà user đã JoinGroup: online khi vào phòng, offline khi kết nối cuối cùng đóng.
-    Task UserPresenceChanged(Guid userId, bool isOnline);
+    Task PresenceSnapshot(ChatApp.ChatService.Dtos.PresenceSnapshotDto snapshot);
+    Task TypingChanged(Guid groupId, Guid userId, string displayName, bool isTyping);
+    Task GroupAccessRevoked(Guid groupId);
 }

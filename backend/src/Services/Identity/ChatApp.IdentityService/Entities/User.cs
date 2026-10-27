@@ -16,4 +16,12 @@ public class User
     public string DisplayName { get; set; } = null!;
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+    public string SystemRole { get; set; } = "User";
+    public bool IsLocked { get; set; }
+    public long AuthVersion { get; set; }
+    public DateTimeOffset? LockedAt { get; set; }
+    public Guid? LockedBy { get; set; }
+    public string? LockReason { get; set; }
+    [System.ComponentModel.DataAnnotations.Timestamp]
+    public uint Version { get; set; }
 }

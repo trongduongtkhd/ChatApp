@@ -17,6 +17,8 @@ public class Group
     // true = chat riêng tạo từ sự kiện kết bạn: Id = DirectChat.GroupIdFor(a, b), 2 thành viên đều Member,
     // không ai sửa / xóa nhóm, thêm / xóa thành viên được (GroupManagementService chặn 400).
     public bool IsDirect { get; set; }
+    public bool RequiresApproval { get; set; }
+    public string? InviteTokenHash { get; set; }
 
     // Chỉ dùng cho nhóm IsDirect (Bước 4b): Revision của sự kiện friendship-changed đã áp gần nhất.
     // Sự kiện có Revision ≤ số này là sự kiện cũ (gửi lại / đến muộn) → bỏ qua. Nhóm thường: null.
