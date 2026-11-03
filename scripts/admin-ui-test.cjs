@@ -134,8 +134,8 @@ async function main() {
   await check('Duyệt xong thành viên xuất hiện',async()=> (await bo.evaluate(`document.querySelector('.mp-list')?.innerText || ''`)).includes(target.displayName));
   await check('Người được duyệt có nút mở cuộc trò chuyện',()=>bt.evaluate(`Array.from(document.querySelectorAll('a')).some(a=>a.textContent.trim()==='Mở cuộc trò chuyện')`));
   await bt.evaluate(`Array.from(document.querySelectorAll('a')).find(a=>a.textContent.trim()==='Mở cuộc trò chuyện').click()`);
-  await until(()=>bt.evaluate(`!!document.querySelector('app-message-input input')`));
-  await bt.evaluate(`{const e=document.querySelector('app-message-input input');e.value='Lịch sử UI trước khi khóa';e.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}`);
+  await until(()=>bt.evaluate(`!!document.querySelector('app-message-input input[type=text]')`));
+  await bt.evaluate(`{const e=document.querySelector('app-message-input input[type=text]');e.value='Lịch sử UI trước khi khóa';e.dispatchEvent(new Event('input',{bubbles:true}));document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));}`);
   await check('Người vừa được duyệt gửi tin được',async()=> (await bo.text()).includes('Lịch sử UI trước khi khóa'));
   async function memberAction(value){await bo.evaluate(`{const e=document.querySelector('select[aria-label="Quản lý ${member.displayName}"]');e.value=${JSON.stringify(value)};e.dispatchEvent(new Event('change',{bubbles:true}));}`);await confirm(bo);}
   await memberAction('promote');

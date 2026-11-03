@@ -1,4 +1,7 @@
-import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Output, ViewChild, OnDestroy } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, ElementRef, EventEmitter, Input, Output, ViewChild, OnDestroy } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { AttachmentApiService, AttachmentDraft } from '../../../../core/services/attachment-api.service';
+import { Attachment } from '../../../../core/models/message';
 
 // Ô nhập tin (Main.dc.html). Chỉ lo nhập + bấm Gửi; sinh messageId và gửi do chat-window làm.
 // KHÔNG khóa ô nhập khi đang kết nối lại: tin vẫn nhận, nằm chờ "Đang gửi…" tới khi có kết nối.
@@ -11,9 +14,20 @@ import { ChangeDetectionStrategy, Component, ElementRef, EventEmitter, Input, Ou
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageInputComponent implements OnDestroy {
+  @Input() groupId = '';
+  fileError: string | null = null;
+  private readonly subscription: Subscription;
+  constructor(readonly files: AttachmentApiService, cd: ChangeDetectorRef) { this.subscription = files.changed$.subscribe(() => cd.markForCheck()); }
+  get drafts(): AttachmentDraft[] { return this.files.list(this.groupId); }
+  get canSend(): boolean { return (!!this.text.trim() || this.drafts.length > 0) && this.drafts.every(d => d.status === 'ready'); }
+  picked(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files) this.fileError = this.files.add(this.groupId, input.files);
+    input.value = '';
+  }
   // Thông báo từ server (HubException), hiện nguyên văn dưới ô nhập, màu --ink-muted (UI.md).
   @Input() error: string | null = null;
-  @Output() readonly send = new EventEmitter<string>();
+  @Output() readonly send = new EventEmitter<{ content: string; attachments: Attachment[] }>();
   @Output() readonly typing = new EventEmitter<boolean>();
   @Output() readonly textChange = new EventEmitter<string>();
   private idleTimer?: ReturnType<typeof setTimeout>;
@@ -30,7 +44,7 @@ export class MessageInputComponent implements OnDestroy {
     this.typing.emit(false);
   }
 
-  ngOnDestroy(): void { this.stopTyping(); }
+  ngOnDestroy(): void { this.stopTyping(); this.subscription.unsubscribe(); }
 
   @ViewChild('box', { static: true }) box!: ElementRef<HTMLInputElement>;
 
@@ -38,10 +52,10 @@ export class MessageInputComponent implements OnDestroy {
 
   submit(): void {
     const content = this.text.trim();
-    if (!content) {
+    if (!this.canSend) {
       return;
     }
-    this.send.emit(content);
+    this.send.emit({ content, attachments: this.files.takeReady(this.groupId) });
     this.stopTyping();
     this.text = '';
     this.textChange.emit('');

@@ -122,6 +122,15 @@ function apply(plan){
   const dir=backup(stamp);
   fs.writeFileSync(path.join(dir,'test-cleanup-'+stamp+'.json'),JSON.stringify({plan,before},null,2));
   console.log('Backup hoàn tất: infra/backups/test-cleanup-'+stamp+'-*');
+  const attachmentFilter={$or:[{groupId:{$in:plan.groupIds}},{ownerId:{$in:plan.userIds}}]};
+  const objects=JSON.parse(mongo(`print(JSON.stringify(db.attachments.find(${JSON.stringify(attachmentFilter)},{objectKey:1}).toArray()))`));
+  // Chỉ xóa object của đúng fixture đã xác định, không xóa bucket/volume.
+  for(const object of objects){
+    if(!/^conversations\/[a-f0-9-]{36}\/[a-f0-9-]{36}\/[a-f0-9]{32}$/.test(object.objectKey))throw new Error('Invalid test object key');
+    docker(['exec','-i','attachment-storage','weed','shell','-master=localhost:9333','-filer=localhost:8888'],
+      'fs.rm /buckets/chatapp-attachments/'+object.objectKey+'\n');
+  }
+  mongo(`db.attachments.deleteMany(${JSON.stringify(attachmentFilter)});`);
   pg('group_db',`BEGIN;
     DELETE FROM outbox_messages WHERE ${s.group};
     DELETE FROM group_join_requests WHERE group_id = ANY(${s.g}) OR user_id = ANY(${s.u}) OR requested_by = ANY(${s.u});
@@ -153,6 +162,10 @@ function apply(plan){
   // Xóa đúng key/mục thành viên test; giữ nguyên dữ liệu Redis của người thật.
   const redisScript=`local users=cjson.decode(ARGV[1]); local groups=cjson.decode(ARGV[2]); local n=0;
     for _,id in ipairs(users) do n=n+redis.call('DEL','presence:v2:sessions:'..id,'presence:'..id);redis.call('ZREM','presence:v2:due',id);redis.call('SREM','presence:v2:online',id);redis.call('PUBLISH','chatapp:presence:changed',id);end
+    local targets={};for _,id in ipairs(users) do targets[id]=true;redis.call('DEL','video:v1:live:'..id,'video:v1:busy:'..id);end
+    local cursor='0';repeat local scan=redis.call('SCAN',cursor,'MATCH','video:v1:call:*','COUNT',100);cursor=scan[1];
+      for _,key in ipairs(scan[2]) do local a=redis.call('HGET',key,'callerId');local b=redis.call('HGET',key,'calleeId');if targets[a] or targets[b] then local call=redis.call('HGET',key,'id');redis.call('ZREM','video:v1:due',call);redis.call('DEL',key);end end
+    until cursor=='0';
     for _,id in ipairs(groups) do n=n+redis.call('DEL','group:members:'..id,'chat:seq:'..id);end
     redis.call('PUBLISH','chatapp:membership:changed','cleanup');return n;`;
   docker(['exec','redis','redis-cli','EVAL',redisScript,'0',JSON.stringify(plan.userIds),JSON.stringify(plan.groupIds)]);

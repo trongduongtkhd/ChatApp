@@ -1,4 +1,6 @@
+using ChatApp.Common.Operations;
 using ChatApp.Common.Auth;
+using ChatApp.Common.Backup;
 using ChatApp.Common.Kafka;
 using ChatApp.Common.Outbox;
 using ChatApp.GroupService.Data;
@@ -9,6 +11,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddChatAppOperations("group", async (sp, ct) =>
+{
+    var db = sp.GetRequiredService<GroupDbContext>();
+    var ready = await db.Database.CanConnectAsync(ct);
+    if (ready) OperationsMetrics.Pending.Set(await db.Set<ChatApp.Common.Outbox.OutboxMessage>().LongCountAsync(x => x.ProcessedAt == null, ct));
+    return ready;
+});
+builder.Services.AddBackupWriteCoordination();
 
 // Connection string lấy từ cấu hình: user-secrets khi chạy local, biến môi trường khi chạy Docker.
 builder.Services.AddDbContext<GroupDbContext>(options =>
@@ -52,11 +62,14 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+app.UseChatAppOperations();
+await app.InitializeBackupWriteCoordinationAsync();
 
 // Tự áp migration khi khởi động.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<GroupDbContext>();
+    using var checkpointLease = await app.Services.GetRequiredService<BackupWriteGate>().EnterAsync();
     await db.Database.MigrateAsync();
 }
 
@@ -69,6 +82,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<BackupWriteMiddleware>();
 
 app.MapGet("/", () => "ChatApp.GroupService is running");
 app.MapControllers();

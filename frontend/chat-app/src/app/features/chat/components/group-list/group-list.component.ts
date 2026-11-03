@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, ElementRef, Input } from '@angular/core';
 import { Group, groupTitle } from '../../../../core/models/group';
-import { Message } from '../../../../core/models/message';
+import { Message, messagePreview } from '../../../../core/models/message';
 
 // Một dòng trong danh sách nhóm: nhóm + tin cuối + số chưa đọc.
 // last: undefined = đang tải, null = chưa có tin (hoặc không tải được).
@@ -20,6 +20,7 @@ export type GroupListTab = 'all' | 'unread' | 'groups' | 'online';
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class GroupListComponent {
+  readonly preview = messagePreview;
   @Input() items: GroupListItem[] = [];
   @Input() myId = '';
   @Input() now = Date.now();

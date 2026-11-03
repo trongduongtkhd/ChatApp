@@ -13,4 +13,6 @@ public interface IChatClient
     Task PresenceSnapshot(ChatApp.ChatService.Dtos.PresenceSnapshotDto snapshot);
     Task TypingChanged(Guid groupId, Guid userId, string displayName, bool isTyping);
     Task GroupAccessRevoked(Guid groupId);
+    Task VideoCallChanged(VideoCallDto call);
+    Task VideoCallSignal(VideoCallSignalDto signal);
 }

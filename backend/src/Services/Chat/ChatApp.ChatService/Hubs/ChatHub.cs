@@ -22,6 +22,8 @@ public class ChatHub(
     MessageService messages,
     PresenceCoordinator presence,
     TypingTracker typing,
+    VideoCallCoordinator calls,
+    VideoCallStore callStore,
     ChatApp.ChatService.Grpc.GroupMembershipClient groupSource,
     ILogger<ChatHub> logger) : Hub<IChatClient>
 {
@@ -38,6 +40,8 @@ public class ChatHub(
     {
         var userId = Context.User!.GetUserId();
         presence.Connect(Context.ConnectionId, userId);
+        try { await callStore.RegisterAsync(userId.ToString(), Context.ConnectionId); }
+        catch (Exception ex) { logger.LogWarning("Chưa đăng ký được call connection: {Error}", ex.Message); }
         // Không chờ Presence: service này hỏng không được làm kết nối chat thất bại.
         logger.LogInformation("User {UserId} kết nối {ConnectionId}", userId, Context.ConnectionId);
         await base.OnConnectedAsync();
@@ -50,6 +54,8 @@ public class ChatHub(
     {
         var userId = Context.User!.GetUserId();
         presence.Disconnect(Context.ConnectionId);
+        try { await calls.DisconnectAsync(userId.ToString(), Context.ConnectionId); }
+        catch (Exception ex) { logger.LogWarning("Chưa dọn được call connection: {Error}", ex.Message); }
         typing.Remove(Context.ConnectionId);
         logger.LogInformation("User {UserId} ngắt {ConnectionId}; chờ lease hết hạn nếu không reconnect", userId, Context.ConnectionId);
         await base.OnDisconnectedAsync(exception);
@@ -76,7 +82,32 @@ public class ChatHub(
         presence.LeaveRoom(Context.ConnectionId, groupId);
     }
 
-    public Task Heartbeat() => presence.HeartbeatAsync(Context.ConnectionId);
+    public async Task Heartbeat()
+    {
+        await presence.HeartbeatAsync(Context.ConnectionId);
+        try { await callStore.RegisterAsync(Context.User!.GetUserId().ToString(), Context.ConnectionId); }
+        catch (Exception ex) { logger.LogDebug("Call lease chưa gia hạn: {Error}", ex.Message); }
+    }
+
+    public Task<VideoCallConfig> GetVideoCallConfig() => CallGuard(() => calls.ConfigAsync(Context.User!.GetUserId().ToString(), Context.ConnectionId));
+    public Task<VideoCallDto?> GetCurrentVideoCall() => CallGuard(() => calls.CurrentAsync(Context.User!.GetUserId().ToString()));
+    public Task<VideoCallDto> StartVideoCall(Guid callId, Guid peerId) => CallGuard(() => calls.StartAsync(callId, peerId, Context.User!, Context.ConnectionId, Context.ConnectionAborted));
+    public Task<VideoCallDto> AcceptVideoCall(Guid callId) => CallGuard(() => calls.ChangeAsync("accept", callId, Context.User!, Context.ConnectionId, false, "", Context.ConnectionAborted));
+    public Task<VideoCallDto> PulseVideoCall(Guid callId, bool connected) => CallGuard(() => calls.ChangeAsync("pulse", callId, Context.User!, Context.ConnectionId, connected, "", Context.ConnectionAborted));
+    public Task<VideoCallDto> EndVideoCall(Guid callId, string reason) => CallGuard(() => calls.ChangeAsync("end", callId, Context.User!, Context.ConnectionId, false,
+        reason is "declined" or "cancelled" or "failed" ? reason : "hangup", Context.ConnectionAborted));
+    public async Task SendVideoCallSignal(Guid callId, string kind, string data) => await CallGuard(async () =>
+    { await calls.SignalAsync(callId, kind, data, Context.User!, Context.ConnectionId, Context.ConnectionAborted); return true; });
+    private async Task<T> CallGuard<T>(Func<Task<T>> action)
+    {
+        try { return await action(); }
+        catch (HubException) { throw; }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Video call chưa xử lý được: {Error}", ex.Message);
+            throw new HubException("Kết nối hoặc dịch vụ cuộc gọi tạm gián đoạn. Hãy thử lại.");
+        }
+    }
 
     public async Task EndSession()
     {
@@ -99,12 +130,20 @@ public class ChatHub(
     // Gửi tin (DESIGN mục 6). messageId do client sinh. Trả về tin đã lưu (có sequenceNumber) cho người gửi
     // → client biết chắc server đã nhận; mọi người trong phòng (kể cả người gửi) cũng nhận ReceiveMessage.
     // Gọi lại với cùng messageId bao nhiêu lần cũng chỉ có MỘT tin (idempotent) → client cứ yên tâm gửi lại khi không chắc.
-    public async Task<MessageDto> SendMessage(Guid messageId, Guid groupId, string content)
+    public Task<MessageDto> SendMessage(Guid messageId, Guid groupId, string content) =>
+        SendCoreAsync(messageId, groupId, content, []);
+
+    public Task<MessageDto> SendMessageWithAttachments(Guid messageId, Guid groupId, string content, Guid[] attachmentIds) =>
+        SendCoreAsync(messageId, groupId, content, attachmentIds ?? []);
+
+    private async Task<MessageDto> SendCoreAsync(Guid messageId, Guid groupId, string content, Guid[] attachmentIds)
     {
         if (messageId == Guid.Empty)
             throw new HubException("messageId không hợp lệ.");
         content = content?.Trim() ?? "";
-        if (content.Length == 0)
+        if (attachmentIds.Length > 5 || attachmentIds.Distinct().Count() != attachmentIds.Length || attachmentIds.Contains(Guid.Empty))
+            throw new HubException("Mỗi tin tối đa 5 đính kèm khác nhau.");
+        if (content.Length == 0 && attachmentIds.Length == 0)
             throw new HubException("Nội dung tin nhắn trống.");
         if (content.Length > MaxContentLength)
             throw new HubException($"Tin nhắn dài quá {MaxContentLength} ký tự.");
@@ -118,8 +157,9 @@ public class ChatHub(
         {
             result = await messages.SendAsync(messageId, groupId, user.GetUserId(),
                 string.IsNullOrEmpty(displayName) ? user.GetUserName() : displayName,
-                content, Context.ConnectionAborted);
+                content, Context.ConnectionAborted, attachmentIds);
         }
+        catch (AttachmentException ex) { throw new HubException(ex.Message); }
         catch (Exception ex) when (ex is MongoException or TimeoutException or OperationCanceledException)
         {
             logger.LogWarning("Chưa xác nhận lưu tin {MessageId}: {Error}", messageId, ex.Message);

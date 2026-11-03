@@ -46,7 +46,7 @@ ChatApp/
 ├── infra/
 │   ├── postgres/init.sql         # tạo 4 database
 │   ├── nginx/nginx.conf          # load balancing chat-service
-│   └── backups/                  # file backup pg_dump
+│   └── backups/                  # bundle PostgreSQL/system và runtime local (gitignore)
 ├── scripts/                      # script test (bắn 200 tin, gửi trùng...)
 ├── backend/
 │   ├── ChatApp.sln
@@ -357,8 +357,35 @@ SignalR Hub `/hubs/notifications`:
 | 4. Trao đổi thông tin | REST, gRPC, Kafka, Redis cache, SignalR + Redis Backplane |
 | 5. Định danh | GUID v7, JWT, SignalR ConnectionId, Docker DNS, URI, ID tất định UUID v5 (nhóm chat riêng) |
 | 6. Đồng bộ hóa | Mongo transaction/counter/unique index và lease fencing cho Chat; Redis TIME/Lua cho Presence; Kafka partition key, idempotency, Optimistic Locking (xmin), SQL Outbox (`FOR UPDATE SKIP LOCKED`) ở service khác |
-| 7. Sao lưu | PostgreSQL streaming replication, pg_dump + Hangfire, Redis AOF, Kafka retention/replay |
+| 7. Sao lưu | PostgreSQL base + WAL/PITR, streaming standby; checkpoint phối hợp Mongo snapshot/Kafka offsets/object manifest, Redis AOF, Hangfire/lưu giữ, phục hồi web riêng |
 | 8. Chịu lỗi | Polly, Nginx load balancing, Health Checks, Serilog + Seq, SignalR auto reconnect, consumer group |
+
+### 7a. PostgreSQL online backup/PITR – Phần 13.1 (duyệt 31/10/2026)
+
+- Container PostgreSQL 17 hiện có giữ nguyên `postgres-data`; bật `wal_level=replica`, `archive_mode=on`, `archive_timeout=60s`. Cấu hình lần đầu cần tạo lại/khởi động PostgreSQL; những lần backup sau không dừng server.
+- Volume `postgres-wal-archive` riêng; `postgres-archive-init` chỉ đặt owner/mode của volume này. Không dùng init.sql để thay đổi database hiện có. Script `infra/postgres/archive-wal.sh` lưu vào thư mục theo system identifier, copy tạm + sync + hard link nguyên tử, chỉ chấp nhận archive trùng nếu nội dung giống hệt.
+- `scripts/backup-postgres.ps1` dùng Unix socket bên trong container, user hệ điều hành postgres và POSTGRES_USER hiện tại; không ghi mật khẩu vào tham số/file mới. `pg_basebackup --wal-method=stream --manifest-checksums=SHA256`, verify bằng `pg_verifybackup`, copy ra `infra/backups/postgres/<id>/base`, lưu metadata và các WAL đã archive. Backup toàn bộ PostgreSQL instance (các DB dịch vụ vẫn tách logic).
+- `scripts/new-postgres-restore-point.ps1`: ghi named restore point sau khi bản nền hoàn tất, `pg_switch_wal`, chờ file thực sự archive, copy WAL vào bundle và ghi SHA-256/LSN. Bundle có đủ file để restore mà không cần kết nối PostgreSQL nguồn. Không tự lưu được mọi thay đổi tương lai sau lần chốt WAL.
+- `scripts/restore-postgres.ps1` chỉ tạo tên `chatapp-pg-restore[-...]` với volume mới tương ứng; không ghi đè container/volume đã tồn tại. Dùng đúng image ID của bản nguồn, verify base, kiểm SHA-256 WAL và metadata; `recovery_target_name`, `recovery_target_action=pause`, kiểm đúng replay LSN và system ID.
+- Container restore `network none`, không port, archive tắt và cấu hình kết nối primary rỗng. Không có consumer/outbox publisher của ứng dụng nối tới nó. Chỉ đọc để kiểm tra; chưa phải quy trình đổi toàn hệ thống sang dữ liệu phục hồi.
+- Dữ liệu runtime ở `infra/backups/postgres/` bị gitignore. Code mới: `infra/postgres/archive-wal.sh`, `scripts/postgres-backup-common.ps1`, `backup-postgres.ps1`, `new-postgres-restore-point.ps1`, `restore-postgres.ps1`, `test-postgres-backup.ps1`; tài liệu `docs/BACKUP.md`.
+- Không tự xóa WAL/base cũ trong bước này; lưu giữ/tự động hóa/dung lượng sẽ xử lý ở bước sau. PostgreSQL restore points không phải checkpoint toàn ChatApp; Mongo, Kafka, SeaweedFS cần cơ chế phối hợp riêng.
+
+### 7b. Sao lưu toàn ứng dụng và demo web – Phần 13 (31/10/2026)
+
+Phạm vi được mở rộng theo yêu cầu người dùng hoàn thành toàn bộ phần sao lưu, test và hướng dẫn demo trên web; mục 7a ghi thiết kế của bước PostgreSQL riêng trước đó.
+
+- Gateway điều phối qua Hangfire/PostgreSQL `backup_db`, một worker và file lock cho tác vụ quản trị. SystemAdmin được kiểm quyền hiện tại qua Identity gRPC. Angular 12 có `/admin/backups`: tạo/verify/restore riêng/lịch/retention và polling trạng thái.
+- Bản nền PostgreSQL online hoàn tất trước checkpoint. Cửa ghi dùng Redis intent TTL 8s, deadline chốt 7s; Compose có năm participant identity/group/notification/chat-1/chat-2; mode Kubernetes thay hai Chat cố định bằng tập Pod động với membership epoch (mục 13). Mỗi participant đóng cửa local, drain writer rồi ACK token + process generation. Bao cả API ghi, hai phương thức hub gửi tin, migrations/index startup, SQL/Mongo publishers, Kafka handlers và commit offsets. Đọc tiếp tục, ghi mới đợi ngắn; không giữ cửa suốt bulk copy. Thiếu participant, đổi generation hoặc hết TTL làm tác vụ thất bại, không công bố complete.
+- Trong cửa: ghi named PostgreSQL restore point/LSN, majority Mongo checkpoint operationTime và Kafka committed/high offsets. Sau mở cửa: seal đúng mốc PostgreSQL đã tạo, xuất sáu Mongo collection với cùng snapshot `atClusterTime`, export Kafka range đã chốt, chép object Attached bất biến và kiểm SHA-256/size theo metadata. Mongo shard giữ snapshot history tối thiểu 3.600s, job giới hạn 30 phút, từ chối snapshot/collection không hỗ trợ.
+- Kafka phục hồi vào broker rỗng, giữ key/value/partition/thứ tự/timestamp, ánh xạ committed offsets theo record boundaries trước khi bật consumers. Bảng idempotency và Outbox nằm trong bản DB; pending outbox gửi tiếp, event trùng được xử lý theo cơ chế hiện có. Không reset offsets nguồn.
+- Redis nguồn AOF `appendfsync everysec`; RDB trong bundle chỉ đối chiếu. Recovery dùng Redis mới, không hồi sinh presence/cuộc gọi/lease của tiến trình cũ. Mongo publisher lease được làm hết hạn khi import.
+- Bundle `infra/backups/system/<id>` gồm PostgreSQL base/WAL, Mongo JSONL/index catalog/object bytes, Kafka ranges/offsets, web build, image IDs và manifest SHA-256. Completed bundle tự chứa WAL tới mốc; dùng image IDs local đã chốt. Repository/config/secrets phù hợp vẫn cần cho restore, chưa có sao lưu ngoài máy.
+- Restore chỉ dựng project/network/volumes `chatapp-recovery` riêng, web `127.0.0.1:4201`, banner nhận diện. PostgreSQL clone replay đúng LSN/pause trước, chỉ clone được promote để chạy app; không promote/ghi đè nguồn. Job/schedule bị tắt ở recovery, một recovery tại một thời điểm; cleanup kiểm labels/prefix. Không tự chuyển route nguồn.
+- Hangfire hỗ trợ hourly/daily 02:00 Asia/Ho_Chi_Minh/disabled. Giữ N=1..30 completed bundles, ghim bản recovery đang dùng. Dọn archive spool sau backup, mặc định 168h (24..720h), không đụng pg_wal/bundle/slot; bản lỗi giữ để chẩn đoán. Bản nền thủ công quá cũ không bảo đảm còn WAL để thêm mốc mới.
+- Standby PostgreSQL bất đồng bộ, role/slot riêng, volume riêng, không host port; giới hạn slot 256MB. Không có automatic failover. Cùng máy chưa phải HA phần cứng.
+- Không deploy/migration/chuyển schema/shard hoặc ghi trực tiếp DB/Kafka bằng script ngoài app trong lúc backup. Thêm participant/persistent writer/topic/consumer/collection phải cập nhật protocol. Attachment Attached hiện không bị xóa/ghi đè; nếu đổi quy tắc này cần versioning/giữ object.
+- Hướng dẫn demo/khái niệm/giới hạn: `docs/BACKUP.md`, bảng file và thứ tự đọc: `docs/BACKUP-CODE.md`; bài PostgreSQL độc lập: `docs/BACKUP-POSTGRES.md`. Phần 12/chương 8 vẫn riêng.
 
 ## 8. Bổ sung đã duyệt: Presence Service và đang gõ (27/10/2026)
 
@@ -402,3 +429,34 @@ SignalR Hub `/hubs/notifications`:
 - Admin Angular /admin/users và /admin/groups, phân trang/tìm kiếm/chi tiết/khóa-mở khóa; xem metadata/role nhóm thường, không cấp quyền chat. Backend admin routes riêng do đúng service xử lý. Không đọc chéo DB. Angular 12 NgModule/RxJS, không thêm package npm.
 - Migration bổ sung, không reset dữ liệu. Kiểm thử API, race/role/revoke/two replicas/Kafka outage, UI và hồi quy 11b/11c. Chi tiết nghiệm thu sẽ ghi docs/ADMIN.md.
 - Tài liệu vận hành/khái niệm/demo/kiểm thử: `docs/MONGODB.md`. Kiểm thử tổng hợp công việc 1+2: `scripts/test-chat-system.ps1`.
+
+## 11. Đính kèm ảnh/file — đã duyệt 28/10/2026
+
+- SeaweedFS 4.51 chạy `mini` trong Docker, volume `attachment-data`, bucket `chatapp-attachments`, API S3 chỉ ở mạng nội bộ. Không kết nối AWS, không tài khoản/thẻ hoặc thời hạn Free Plan. Đây là kho local tương thích S3; một node chưa có HA. Sao lưu object Attached được bổ sung ở mục 7b.
+- Upload/download REST có JWT qua Gateway → Nginx → một trong hai Chat. Cả hai replica dùng chung SeaweedFS. AWS S3 SDK backend dùng ServiceURL nội bộ; credentials sinh riêng trong `infra/attachments.local.env` có gitignore. Frontend không nhận objectKey/credentials.
+- Mongo `attachments` quản lý ownerId/groupId/fileName/contentType/kind/size/SHA256/objectKey/state/createdAt/expiresAt/messageId. Index state+expiresAt; không TTL xóa metadata trước khi xóa object. Collection quản lý upload chưa sharded; messages/outbox giữ nguyên sharding theo groupId.
+- PUT `/api/chat/groups/{groupId}/attachments/{uploadId}` nhận binary, `X-File-Name` URI encoded. Backend spool temp có giới hạn, kiểm định dạng, hash, khóa uploadId unique rồi ghi object bất biến. Ready khi kho ACK; retry cùng ID/nội dung trả metadata cũ. GET cùng URL đọc trạng thái chỉ cho owner; DELETE hủy Ready/Failed; GET `.../{id}/content` chỉ đọc Attached sau kiểm quyền hiện tại.
+- Giới hạn 5 đính kèm, ảnh JPEG/PNG/WebP 10 MiB, file PDF/DOCX/XLSX/PPTX/TXT UTF-8/ZIP 25 MiB, tổng 50 MiB/tin. Kiểm signature/container Office/ZIP; không tự giải nén hoặc chạy file người dùng. Đây không phải hệ thống quét malware.
+- Hub giữ SendMessage cũ, thêm SendMessageWithAttachments(messageId, groupId, content, attachmentIds). Trong transaction Mongo: đổi tất cả Ready→Attached theo owner/group và deadline, ghi message/counter/key/Outbox cùng commit; sai một file hoặc quá tổng dung lượng rollback tất cả. Duplicate messageId trả tin đã lưu trước khi claim file. Không đưa binary qua SignalR/Kafka.
+- Worker claim Uploading/Ready/Failed hết hạn 24h hoặc Deleting do hủy, chuyển Deleting trước I/O và retry có lease khi kho lỗi; không bao giờ claim Attached. Object key không tái sử dụng; cleanup và gửi cùng ghi document attachment nên cạnh tranh có write conflict. Không gọi S3 trong callback transaction Mongo.
+- Mọi API đính kèm dùng account middleware và membership gRPC hiện tại; pending/nonmember/locked không được truy cập. Admin hệ thống không tự có quyền đọc nội dung chat. File đã tải xuống thiết bị không thể thu hồi. Phân quyền có cùng giới hạn TOCTOU như API lịch sử hiện tại.
+- Angular 12/Node 14: draft theo conversation, preview local/progress/retry/remove, chỉ cho gửi khi upload sẵn sàng, ảnh lazy bằng JWT API/Blob URL và dialog phím Escape, file tải xuống, cleanup URL khi destroy/logout. Lịch sử tuần/read-only và unread giữ nguyên. Kho gián đoạn không chặn tin chữ.
+- Chi tiết vận hành/kiểm thử: `docs/ATTACHMENTS.md`.
+
+## 12. Gọi video 1–1 (đã duyệt 28/10/2026)
+
+- WebRTC truyền media, SignalR hiện có chuyển lời mời/SDP/ICE; STUN mặc định và TURN tùy chọn cấu hình. Không thêm dịch vụ cloud trả phí; Coturn local Docker chỉ bật khi cần thử relay. Cloudflare Quick Tunnel đưa web/signaling ra HTTPS, không tự cung cấp TURN.
+- Chỉ bạn bè Accepted trong chat riêng; JWT/account/AuthVersion và quyền thành viên kiểm từ nguồn. Redis Lua giữ busy hai user, chọn một tab nhận, version/deadline và Redis TIME dùng chung hai Chat replica. Ring 30s, connect 45s, pulse 5s/lease 30s, monitor thu hồi quyền khoảng 6s.
+- Angular 12 có nút camera ở chat riêng, dialog toàn ứng dụng, nhận/từ chối/hủy/kết thúc và tắt/bật mic/camera. Chỉ mở camera người nhận sau khi họ nhận; dừng track khi kết thúc/lỗi/mất kết nối. Không có gọi nhóm, ghi hình hoặc lưu lịch sử cuộc gọi.
+- Media/SDP/ICE không lưu DB/Kafka/kho file. Đường media khác mạng có thể cần public TURN; không khẳng định Quick Tunnel đủ cho mọi NAT. Chi tiết code, chạy/test, giới hạn và demo lỗi: `docs/VIDEO-CALLS.md`.
+
+
+## 13. Chương 8 / Phần 12 — đã duyệt 01/11/2026
+
+- Triển khai bảy bước: health/probes; Serilog/Seq; Polly timeout/retry/circuit; Prometheus/Grafana/alerts; Chat Kubernetes + backup; HPA; fault/load/regression và cleanup.
+- `Common/Operations` chứa health/metrics/logging và resilience cho RPC đọc quyền account/membership. Các RPC audience/presence/call còn lại giữ deadline/fallback hiện có. Liveness kiểm tiến trình; readiness theo storage bắt buộc. Kafka/Presence gián đoạn được quan sát riêng để giữ khả năng phục vụ suy giảm có kiểm soát.
+- Chat chạy Kubernetes kind local riêng, kubeconfig trong runtime; dữ liệu và các service khác giữ hạ tầng hiện tại. Một mode Chat phục vụ nguồn. Service/NodePort làm đường vào ổn định; HPA 2..4, CPU request 200m sau đo tải nền, target 60%, scale-down stabilization 90s. Redis Backplane/idempotency giữ nguyên.
+- Monitoring khám phá từng Chat Pod; logs/metrics không chứa token, mật khẩu, nội dung tin hoặc ID người dùng làm metric labels. Metrics Server cấp resource metrics cho HPA; Prometheus lưu lịch sử, Grafana hiển thị và Seq tra cứu log.
+- Backup phát hiện tập writer động/generation và membership epoch; Pod mới chờ intent trước startup writes. Thay đổi tập/generation/epoch khi chốt làm backup thất bại. Công cụ checkpoint/export có adapter Docker/kubectl; recovery riêng vẫn dùng Compose.
+- Kiểm thử tạo fixture có mốc thời gian, cleanup đúng phạm vi và fingerprint dữ liệu giữ lại; không xóa volume nguồn. Kubernetes một node chứng minh phục hồi/scale tầng app, không phải HA toàn máy hoặc tự failover database.
+- File mới trong Common/Operations, infra/observability, infra/k8s, các Compose overlay và scripts; hướng dẫn/test/demo tại docs/RESILIENCE.md. Script khởi động chương 7 giữ mode Kubernetes đã chọn.

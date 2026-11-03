@@ -5,7 +5,14 @@
 
 # dotenv files
 .env
+infra/attachments.local.env
+infra/turn.local.env
+infra/tools/cloudflared.exe
+.attachments-build/
 infra/backups/*.dump
+infra/backups/postgres/
+infra/backups/system/
+infra/backups/runtime/
 infra/backups/test-cleanup-*.json
 infra/admin-seed-credentials.local.txt
 
@@ -267,6 +274,9 @@ Generated_Code/
 # because we have git ;-)
 _UpgradeReport_Files/
 Backup*/
+# Backup here is application source, not a Visual Studio upgrade backup.
+!**/Backup/
+!infra/backup/
 UpgradeLog*.XML
 UpgradeLog*.htm
 ServiceFabricBackup/

@@ -1,4 +1,6 @@
+using ChatApp.Common.Operations;
 using ChatApp.Common.Auth;
+using ChatApp.Common.Backup;
 using ChatApp.Common.Kafka;
 using ChatApp.NotificationService.Data;
 using ChatApp.NotificationService.Hubs;
@@ -8,6 +10,13 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddChatAppOperations("notification", async (sp, ct) =>
+{
+    var db = sp.GetRequiredService<NotificationDbContext>();
+    var ready = await db.Database.CanConnectAsync(ct);
+    return ready;
+});
+builder.Services.AddBackupWriteCoordination();
 
 // Connection string lấy từ cấu hình: user-secrets khi chạy local, biến môi trường khi chạy Docker.
 builder.Services.AddDbContext<NotificationDbContext>(options =>
@@ -45,11 +54,14 @@ builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();
 builder.Services.AddSingleton<UnreadNotifier>();
 
 var app = builder.Build();
+app.UseChatAppOperations();
+await app.InitializeBackupWriteCoordinationAsync();
 
 // Tự áp migration khi khởi động.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
+    using var checkpointLease = await app.Services.GetRequiredService<BackupWriteGate>().EnterAsync();
     await db.Database.MigrateAsync();
 }
 
@@ -62,6 +74,7 @@ else
 app.UseAuthentication();
 app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<BackupWriteMiddleware>();
 
 app.MapGet("/", () => "ChatApp.NotificationService is running");
 app.MapControllers();

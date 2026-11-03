@@ -9,11 +9,12 @@ import { MemberPanelComponent } from './components/member-panel/member-panel.com
 import { MessageInputComponent } from './components/message-input/message-input.component';
 import { MessageListComponent } from './components/message-list/message-list.component';
 import { ChatLayoutComponent } from './pages/chat-layout/chat-layout.component';
+import { MessageAttachmentComponent } from './components/message-list/message-attachment.component';
 
 // Feature module tải lười (lazy) cho /chat.
 @NgModule({
   declarations: [ChatLayoutComponent, GroupListComponent, ChatWindowComponent, MessageListComponent, MessageInputComponent,
-    MemberPanelComponent, CreateGroupDialogComponent, EditGroupDialogComponent],
+    MemberPanelComponent, CreateGroupDialogComponent, EditGroupDialogComponent, MessageAttachmentComponent],
   imports: [SharedModule, ChatRoutingModule]
 })
 export class ChatModule {}

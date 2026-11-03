@@ -1,8 +1,10 @@
+using ChatApp.Common.Operations;
 using ChatApp.PresenceService.Grpc;
 using ChatApp.PresenceService.Services;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddChatAppOperations("presence", async (sp, ct) => { await sp.GetRequiredService<IConnectionMultiplexer>().GetDatabase().PingAsync().WaitAsync(ct); return true; });
 builder.Services.AddOptions<PresenceOptions>().BindConfiguration("Presence")
     .Validate(o => o.HeartbeatSeconds >= 2 && o.LeaseSeconds >= o.HeartbeatSeconds * 3
         && o.LeaseSeconds <= 3600 && o.SweepSeconds >= 1 && o.SweepSeconds <= o.LeaseSeconds,
@@ -13,6 +15,7 @@ builder.Services.AddSingleton<PresenceStore>();
 builder.Services.AddHostedService<PresenceSweeper>();
 builder.Services.AddGrpc();
 var app = builder.Build();
+app.UseChatAppOperations();
 app.MapGrpcService<PresenceGrpcService>().RequireHost("*:5015");
 app.MapGet("/health", async (IConnectionMultiplexer redis) =>
 {

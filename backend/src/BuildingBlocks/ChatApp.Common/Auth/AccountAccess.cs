@@ -1,3 +1,4 @@
+using ChatApp.Common.Operations;
 using System.Security.Claims;
 using ChatApp.Contracts.Grpc;
 using Grpc.Net.Client;
@@ -15,7 +16,7 @@ public interface IAccountAccessReader
     Task<IReadOnlyDictionary<Guid, AccountAccessState>> ReadAsync(IReadOnlyCollection<Guid> users, CancellationToken ct);
 }
 
-public sealed class RemoteAccountAccessReader(IConfiguration configuration) : IAccountAccessReader, IDisposable
+public sealed class RemoteAccountAccessReader(IConfiguration configuration, GrpcResilience resilience) : IAccountAccessReader, IDisposable
 {
     private readonly GrpcChannel channel = GrpcChannel.ForAddress(configuration["GrpcServices:IdentityService"]
         ?? throw new InvalidOperationException("Thiếu GrpcServices:IdentityService"));
@@ -23,8 +24,8 @@ public sealed class RemoteAccountAccessReader(IConfiguration configuration) : IA
     {
         var request = new AccountAccessRequest();
         request.UserIds.AddRange(users.Select(u => u.ToString()));
-        var reply = await new AccountAccess.AccountAccessClient(channel).GetAccountsAsync(request,
-            deadline: DateTime.UtcNow.AddSeconds(3), cancellationToken: ct);
+        var reply = await resilience.ExecuteAsync("identity", async token => await new AccountAccess.AccountAccessClient(channel).GetAccountsAsync(request,
+            deadline: DateTime.UtcNow.AddSeconds(2), cancellationToken: token), ct);
         return reply.Accounts.ToDictionary(a => Guid.Parse(a.UserId), a =>
             new AccountAccessState(Guid.Parse(a.UserId), a.IsLocked, a.AuthVersion, a.SystemRole));
     }

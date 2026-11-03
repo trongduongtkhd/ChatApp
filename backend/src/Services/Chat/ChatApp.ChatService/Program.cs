@@ -1,9 +1,13 @@
+using ChatApp.Common.Operations;
+using MongoDB.Driver;
+using MongoDB.Bson;
 using ChatApp.ChatService.Data;
 using ChatApp.ChatService.Grpc;
 using ChatApp.ChatService.Hubs;
 using ChatApp.ChatService.Messaging;
 using ChatApp.ChatService.Services;
 using ChatApp.Common.Auth;
+using ChatApp.Common.Backup;
 using ChatApp.Common.Kafka;
 using ChatApp.Contracts.Grpc;
 using StackExchange.Redis;
@@ -16,6 +20,19 @@ if (args.Contains("--migrate-chat"))
     await ChatHistoryMigration.RunAsync(builder.Configuration, args);
     return;
 }
+if (args.Contains("--backup-data"))
+{
+    await ChatApp.ChatService.Data.Backup.ChatBackupCommand.RunAsync(builder.Configuration, args);
+    return;
+}
+builder.AddChatAppOperations("chat", async (sp, ct) =>
+{
+    var store = sp.GetRequiredService<MongoChatStore>();
+    await store.Database.RunCommandAsync<BsonDocument>(new BsonDocument("ping", 1), cancellationToken: ct);
+    OperationsMetrics.Pending.Set(await store.Outbox.CountDocumentsAsync(new BsonDocument("processedAt", BsonNull.Value), cancellationToken: ct));
+    return true;
+});
+builder.Services.AddBackupWriteCoordination();
 
 // MongoClient singleton; ChatDb PostgreSQL chỉ được công cụ --migrate-chat đọc.
 builder.Services.AddSingleton<MongoChatStore>();
@@ -62,7 +79,7 @@ builder.Services.AddControllers();
 // → Người nối vào bản 1 nhận được tin gửi ở bản 2.
 // Công tắc SignalR:RedisBackplane chỉ để demo "tắt backplane" (docker: biến CHAT_BACKPLANE=false). Chạy thật luôn bật.
 var useBackplane = builder.Configuration.GetValue("SignalR:RedisBackplane", true);
-var signalR = builder.Services.AddSignalR(o => o.AddFilter<AccountHubFilter>());
+var signalR = builder.Services.AddSignalR(o => { o.AddFilter<AccountHubFilter>(); o.AddFilter<BackupHubFilter>(); });
 if (useBackplane)
 {
     signalR.AddStackExchangeRedis(redisConnection, o =>
@@ -78,6 +95,9 @@ if (useBackplane)
 // Logic lưu tin Scoped; MongoClient/store singleton, session/transaction riêng từng lần gửi.
 builder.Services.AddScoped<SequenceGenerator>();
 builder.Services.AddScoped<MessageService>();
+builder.Services.AddSingleton<IAttachmentStorage, S3AttachmentStorage>();
+builder.Services.AddScoped<AttachmentService>();
+builder.Services.AddHostedService<AttachmentCleanupWorker>();
 builder.Services.AddScoped<GroupMemberCache>();
 // Chỉ giữ IConnectionMultiplexer (Singleton) → Singleton được.
 builder.Services.AddGrpcClient<ChatApp.Contracts.Grpc.Presence.PresenceClient>(o =>
@@ -86,6 +106,9 @@ builder.Services.AddGrpcClient<FriendPresence.FriendPresenceClient>(o =>
     o.Address = new Uri(builder.Configuration["GrpcServices:IdentityService"]!));
 builder.Services.AddSingleton<PresenceCoordinator>();
 builder.Services.AddSingleton<TypingTracker>();
+builder.Services.AddSingleton<VideoCallStore>();
+builder.Services.AddScoped<VideoCallCoordinator>();
+builder.Services.AddHostedService<VideoCallMonitor>();
 builder.Services.AddHostedService<PresenceRelay>();
 builder.Services.AddHostedService<MembershipRoomMonitor>();
 
@@ -94,9 +117,12 @@ builder.Services.AddChatAppKafkaConsumer<MemberAddedConsumer>(builder.Configurat
 builder.Services.AddChatAppKafkaConsumer<MemberRemovedConsumer>(builder.Configuration);
 
 var app = builder.Build();
+app.UseChatAppOperations();
+await app.InitializeBackupWriteCoordinationAsync();
 
 // Chặn mở API trước khi dữ liệu cũ được đối chiếu; không tự import trong tiến trình phục vụ HTTP.
-await app.Services.GetRequiredService<MongoChatStore>().EnsureReadyAsync();
+using (await app.Services.GetRequiredService<BackupWriteGate>().EnterAsync())
+    await app.Services.GetRequiredService<MongoChatStore>().EnsureReadyAsync();
 
 // Mở kết nối Redis ngay lúc khởi động (thay vì đợi request đầu tiên) để thấy trạng thái trong log.
 var redis = app.Services.GetRequiredService<IConnectionMultiplexer>();
@@ -110,6 +136,7 @@ app.Logger.LogInformation("SignalR Redis Backplane: {State}", useBackplane
 app.UseAuthentication();
 app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<BackupWriteMiddleware>();
 
 app.MapGet("/", () => "ChatApp.ChatService is running");
 app.MapControllers();

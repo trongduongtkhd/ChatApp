@@ -1,0 +1,4 @@
+services:
+  nginx:
+    volumes:
+      - ./infra/nginx/nginx.k8s.conf:/etc/nginx/nginx.conf:ro

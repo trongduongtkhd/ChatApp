@@ -1,0 +1,21 @@
+<div *ngIf="calls.view$ | async as v" class="call-backdrop" (keydown)="keyboard($event)">
+  <section class="call-dialog" role="dialog" aria-modal="true" aria-labelledby="call-title" aria-describedby="call-message">
+    <div class="call-heading"><div><h2 id="call-title">{{ v.peerName }}</h2><div id="call-message" class="call-message" role="status" aria-live="polite">{{ v.message }}</div></div><span *ngIf="v.phase === 'active'">{{ duration }}</span></div>
+    <div *ngIf="v.phase !== 'incoming' && v.phase !== 'ended'" class="call-media">
+      <video #remote class="remote" autoplay playsinline [appCallStream]="calls.remoteStream$ | async" aria-label="Video người đối diện"></video>
+      <div *ngIf="!(calls.remoteStream$ | async)" class="call-waiting">{{ v.phase === 'outgoing' ? 'Đang chờ người kia nhận cuộc gọi…' : 'Đang kết nối video…' }}</div>
+      <video class="local" autoplay playsinline [muted]="true" [appCallStream]="calls.localStream$ | async" aria-label="Video của bạn"></video>
+      <button *ngIf="v.phase === 'active'" type="button" class="ca-btn secondary" style="position:absolute;left:12px;bottom:12px" (click)="play(remote)">Phát âm thanh/video</button>
+    </div>
+    <div class="call-actions">
+      <button *ngIf="v.phase === 'incoming'" type="button" class="ca-btn primary" (click)="calls.accept()">Nhận cuộc gọi</button>
+      <button *ngIf="v.phase === 'incoming'" type="button" class="ca-btn call-end" (click)="calls.hangup('declined')">Từ chối</button>
+      <ng-container *ngIf="v.phase === 'connecting' || v.phase === 'active'">
+        <button type="button" class="ca-btn secondary" [attr.aria-pressed]="!calls.microphoneEnabled" (click)="calls.toggleMicrophone()">{{ calls.microphoneEnabled ? 'Tắt microphone' : 'Bật microphone' }}</button>
+        <button type="button" class="ca-btn secondary" [attr.aria-pressed]="!calls.cameraEnabled" (click)="calls.toggleCamera()">{{ calls.cameraEnabled ? 'Tắt camera' : 'Bật camera' }}</button>
+      </ng-container>
+      <button *ngIf="v.phase !== 'incoming' && v.phase !== 'ended'" type="button" class="ca-btn call-end" (click)="calls.hangup(v.phase === 'outgoing' || v.phase === 'preparing' ? 'cancelled' : 'hangup')">{{ v.phase === 'outgoing' || v.phase === 'preparing' ? 'Hủy cuộc gọi' : 'Kết thúc' }}</button>
+      <button *ngIf="v.phase === 'ended'" type="button" class="ca-btn primary" (click)="close()">Đóng</button>
+    </div>
+  </section>
+</div>

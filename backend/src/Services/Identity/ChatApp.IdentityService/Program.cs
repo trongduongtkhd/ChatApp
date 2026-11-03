@@ -1,4 +1,6 @@
+using ChatApp.Common.Operations;
 using ChatApp.Common.Auth;
+using ChatApp.Common.Backup;
 using ChatApp.Common.Outbox;
 using ChatApp.IdentityService.Data;
 using ChatApp.IdentityService.Services;
@@ -7,6 +9,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.AddChatAppOperations("identity", async (sp, ct) =>
+{
+    var db = sp.GetRequiredService<IdentityDbContext>();
+    var ready = await db.Database.CanConnectAsync(ct);
+    if (ready) OperationsMetrics.Pending.Set(await db.Set<ChatApp.Common.Outbox.OutboxMessage>().LongCountAsync(x => x.ProcessedAt == null, ct));
+    return ready;
+});
+builder.Services.AddBackupWriteCoordination();
 builder.Services.AddGrpc();
 
 // Connection string lấy từ cấu hình: user-secrets khi chạy local, biến môi trường khi chạy Docker.
@@ -45,11 +55,14 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+app.UseChatAppOperations();
+await app.InitializeBackupWriteCoordinationAsync();
 
 // Tự áp migration khi khởi động: database luôn đúng schema mà không phải chạy lệnh tay.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<IdentityDbContext>();
+    using var checkpointLease = await app.Services.GetRequiredService<BackupWriteGate>().EnterAsync();
     await db.Database.MigrateAsync();
     await AdminSeeder.RunAsync(db, app.Configuration, app.Logger);
 }
@@ -64,6 +77,7 @@ if (app.Environment.IsDevelopment())
 app.UseAuthentication();
 app.UseMiddleware<AccountAccessMiddleware>();
 app.UseAuthorization();
+app.UseMiddleware<BackupWriteMiddleware>();
 
 app.MapGet("/", () => "ChatApp.IdentityService is running");
 app.MapControllers().RequireHost("*:5001");

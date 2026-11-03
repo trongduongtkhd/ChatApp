@@ -45,6 +45,10 @@
           <ng-template #noDetail><div class="ca-meta">Không tải được thông tin nhóm</div></ng-template>
         </div>
         <!-- Chat riêng không có panel thành viên: không sửa nhóm, thêm/xóa người, rời/xóa được (server cũng chặn 400) -->
+        <button *ngIf="isDirect && detail?.group?.peer" type="button" class="ca-iconbtn ghost" aria-label="Gọi video" title="Gọi video 1–1"
+                [disabled]="!calls.ready || calls.busy" (click)="calls.start(detail!.group.peer!.userId, title)">
+          <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="13" height="14" rx="3"/><path d="m15 9 7-4v14l-7-4"/></svg>
+        </button>
         <button *ngIf="detail && !isDirect" class="ca-iconbtn ghost" type="button" aria-label="Thành viên nhóm" title="Thành viên nhóm"
                 [attr.aria-pressed]="showMembers" [class.on]="showMembers" (click)="showMembers = !showMembers">
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="4"></circle><path d="M2 21a7 7 0 0 1 14 0"></path><path d="M16 4a4 4 0 0 1 0 8"></path><path d="M22 21a7 7 0 0 0-5-6.7"></path></svg>
@@ -73,7 +77,7 @@
       <div class="ca-meta" style="min-height: 22px; padding: 0 20px" role="status" aria-live="polite">
         <span *ngIf="typingNames.length">{{ typingNames.join(', ') }} đang gõ…</span>
       </div>
-      <app-message-input *ngIf="!selectedWeek" [(text)]="draft" [error]="sendError" (send)="send($event)" (typing)="setTyping($event)"></app-message-input>
+      <app-message-input *ngIf="!selectedWeek" [groupId]="groupId" [(text)]="draft" [error]="sendError" (send)="send($event)" (typing)="setTyping($event)"></app-message-input>
     </div>
 
     <app-member-panel *ngIf="showMembers && detail && !isDirect" [detail]="detail" [myId]="myId" [onlineIds]="onlineIds"

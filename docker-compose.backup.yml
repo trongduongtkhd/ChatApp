@@ -1,0 +1,39 @@
+services:
+  backup-image-identity:
+    profiles: [backup-tools]
+    image: chatapp/identity-service
+    build: { context: ./backend, dockerfile: Service.Dockerfile, args: { PROJECT: src/Services/Identity/ChatApp.IdentityService/ChatApp.IdentityService.csproj } }
+  backup-image-group:
+    profiles: [backup-tools]
+    image: chatapp/group-service
+    build: { context: ./backend, dockerfile: Service.Dockerfile, args: { PROJECT: src/Services/Group/ChatApp.GroupService/ChatApp.GroupService.csproj } }
+  backup-image-notification:
+    profiles: [backup-tools]
+    image: chatapp/notification-service
+    build: { context: ./backend, dockerfile: Service.Dockerfile, args: { PROJECT: src/Services/Notification/ChatApp.NotificationService/ChatApp.NotificationService.csproj } }
+  backup-image-gateway:
+    profiles: [backup-tools]
+    image: chatapp/gateway
+    build: { context: ./backend, dockerfile: Service.Dockerfile, args: { PROJECT: src/Gateway/ChatApp.Gateway/ChatApp.Gateway.csproj } }
+  postgres-standby:
+    profiles: [replication]
+    image: postgres:17-alpine
+    container_name: postgres-standby
+    entrypoint: [sh, /standby/start.sh]
+    environment:
+      PGDATA: /var/lib/postgresql/data
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+    command: []
+    volumes:
+      - postgres-standby-data:/var/lib/postgresql/data
+      - ./infra/postgres/start-standby.sh:/standby/start.sh:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [chatapp-net]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U backup_replication -d postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  postgres-standby-data:

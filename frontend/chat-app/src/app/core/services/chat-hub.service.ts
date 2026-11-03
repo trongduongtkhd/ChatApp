@@ -4,6 +4,7 @@ import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import { distinctUntilChanged, filter, map, take } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import { Message } from '../models/message';
+import { VideoCall, VideoCallSignal } from '../models/video-call';
 import { PresenceSnapshot, TypingNotice } from '../models/presence';
 import { buildHubConnection } from '../utils/hub-connection';
 import { AuthService } from './auth.service';
@@ -37,6 +38,14 @@ export interface GroupPresence {
 // Component không đụng HubConnection: chỉ nhận Observable và gọi joinGroup/leaveGroup.
 @Injectable({ providedIn: 'root' })
 export class ChatHubService {
+  private readonly callSubject = new Subject<VideoCall>();
+  private readonly signalSubject = new Subject<VideoCallSignal>();
+  readonly callEvents$ = this.callSubject.asObservable();
+  readonly callSignals$ = this.signalSubject.asObservable();
+  async callInvoke<T>(method: string, ...args: unknown[]): Promise<T> {
+    const connection = await this.waitConnected();
+    return withTimeout(connection.invoke<T>(method, ...args), 10000);
+  }
   private connection: HubConnection | null = null;
   private startTimer?: ReturnType<typeof setTimeout>;
   private currentGroup: string | null = null;
@@ -123,9 +132,9 @@ export class ChatHubService {
   // Gửi tin. Đang kết nối / kết nối lại → tin CHỜ (hàng đợi), có kết nối thì tự gửi.
   // Rớt kết nối giữa lúc đang gửi → chờ nối lại rồi gửi lại cùng messageId (server idempotent, Phần 7).
   // Kết quả trả về trong NgZone để component cập nhật giao diện được ngay.
-  sendMessage(messageId: string, groupId: string, content: string): Promise<Message> {
+  sendMessage(messageId: string, groupId: string, content: string, attachmentIds: string[] = []): Promise<Message> {
     return new Promise<Message>((resolve, reject) => {
-      this.sendLoop(messageId, groupId, content).then(
+      this.sendLoop(messageId, groupId, content, attachmentIds).then(
         m => this.zone.run(() => resolve(m)),
         e => this.zone.run(() => reject(e))
       );
@@ -158,6 +167,12 @@ export class ChatHubService {
     }
     // skipNegotiation + WebSocket, token qua accessTokenFactory (hết hạn → sessionExpired), withAutomaticReconnect.
     const connection = buildHubConnection(`${environment.hubUrl}/chat`, () => this.storage.getToken(), () => this.sessionExpired());
+    connection.on('VideoCallChanged', (call: VideoCall) => this.zone.run(() => {
+      if (this.connection === connection) this.callSubject.next(call);
+    }));
+    connection.on('VideoCallSignal', (signal: VideoCallSignal) => this.zone.run(() => {
+      if (this.connection === connection) this.signalSubject.next(signal);
+    }));
 
     // Callback của SignalR: đưa về NgZone để Angular biết mà vẽ lại giao diện.
     connection.on('ReceiveMessage', (m: Message) => this.zone.run(() => {
@@ -380,11 +395,14 @@ export class ChatHubService {
     this.typingSubject.next(Array.from(this.typers.values()).map(t => t.notice));
   }
 
-  private async sendLoop(messageId: string, groupId: string, content: string): Promise<Message> {
+  private async sendLoop(messageId: string, groupId: string, content: string, attachmentIds: string[]): Promise<Message> {
     for (;;) {
       const connection = await this.waitConnected();
       try {
-        return await withTimeout(connection.invoke<Message>('SendMessage', messageId, groupId, content), SEND_TIMEOUT_MS);
+        const request = attachmentIds.length
+          ? connection.invoke<Message>('SendMessageWithAttachments', messageId, groupId, content, attachmentIds)
+          : connection.invoke<Message>('SendMessage', messageId, groupId, content);
+        return await withTimeout(request, SEND_TIMEOUT_MS);
       } catch (err) {
         if (err instanceof SendError) {
           throw err; // hết giờ

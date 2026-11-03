@@ -8,13 +8,13 @@ services:
   mongo-shard-1:
     image: mongo:8.0.34
     container_name: mongo-shard-1
-    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-1", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-1", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25", "--setParameter", "minSnapshotHistoryWindowInSeconds=3600"]
     volumes: ["mongo-shard-1-data:/data/db"]
     networks: [chatapp-net]
   mongo-shard-2:
     image: mongo:8.0.34
     container_name: mongo-shard-2
-    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-2", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25"]
+    command: ["mongod", "--shardsvr", "--replSet", "chat-shard-2", "--port", "27018", "--bind_ip_all", "--wiredTigerCacheSizeGB", "0.25", "--setParameter", "minSnapshotHistoryWindowInSeconds=3600"]
     volumes: ["mongo-shard-2-data:/data/db"]
     networks: [chatapp-net]
   mongo-router:

@@ -8,7 +8,7 @@ namespace ChatApp.ChatService.Messaging;
 // Lease theo conversation, gửi tuần tự. ACK chỉ cập nhật nếu owner/version vẫn hợp lệ.
 // Worker cũ bị fencing không được chuyển sang tin kế tiếp; gửi trùng giữ nguyên eventId.
 public sealed class MongoOutboxPublisher(MongoChatStore store, IKafkaProducer producer,
-    IConfiguration configuration, ILogger<MongoOutboxPublisher> logger) : BackgroundService
+    IConfiguration configuration, ILogger<MongoOutboxPublisher> logger, ChatApp.Common.Backup.BackupWriteGate backupGate) : BackgroundService
 {
     private readonly string owner = Guid.NewGuid().ToString();
     private readonly int leaseMs = configuration.GetValue("MongoOutbox:LeaseSeconds", 30) * 1000;
@@ -46,6 +46,7 @@ public sealed class MongoOutboxPublisher(MongoChatStore store, IKafkaProducer pr
 
     private async Task PublishAsync(string groupId, CancellationToken ct)
     {
+        using var checkpointLease = await backupGate.EnterAsync(ct);
         var claim = await store.States.FindOneAndUpdateAsync(Builders<BsonDocument>.Filter.And(
             new BsonDocument("_id", groupId), new BsonDocument("hasPending", true), Expired), Renew(true),
             new FindOneAndUpdateOptions<BsonDocument> { ReturnDocument = ReturnDocument.After }, ct);

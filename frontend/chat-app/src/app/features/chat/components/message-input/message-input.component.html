@@ -1,7 +1,23 @@
+<div *ngIf="drafts.length" class="ca-attachment-drafts" aria-label="Đính kèm chờ gửi">
+  <div *ngFor="let d of drafts" class="ca-attachment-draft">
+    <img *ngIf="d.preview" [src]="d.preview" alt="Ảnh đã chọn">
+    <div class="ca-attachment-info"><strong>{{ d.file.name }}</strong><span>{{ (d.file.size / 1024) | number:'1.0-0' }} KiB</span>
+      <span *ngIf="d.status === 'uploading'" role="status">Đang tải {{ d.progress }}% · chờ server xác nhận</span>
+      <span *ngIf="d.status === 'ready'">Sẵn sàng gửi</span>
+      <span *ngIf="d.status === 'failed'" role="alert">{{ d.error }} <button type="button" class="ca-link" (click)="files.retry(groupId, d)">Thử lại</button></span>
+    </div>
+    <button type="button" class="ca-iconbtn" (click)="files.remove(groupId, d)" [attr.aria-label]="'Bỏ ' + d.file.name">×</button>
+  </div>
+</div>
+<div *ngIf="fileError" class="composer-error" role="alert">{{ fileError }}</div>
 <form class="ca-composer" (ngSubmit)="submit()">
+  <input #imagePicker type="file" hidden multiple accept=".jpg,.jpeg,.png,.webp" (change)="picked($event)">
+  <input #filePicker type="file" hidden multiple accept=".jpg,.jpeg,.png,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.zip" (change)="picked($event)">
+  <button type="button" class="ca-iconbtn" aria-label="Gửi ảnh" title="Gửi ảnh" (click)="imagePicker.click()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 5-5 4 4 4-6 5 7"/></svg></button>
+  <button type="button" class="ca-iconbtn" aria-label="Đính kèm file" title="Đính kèm file" (click)="filePicker.click()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9"/></svg></button>
   <input #box type="text" name="text" placeholder="Aa" aria-label="Nhập tin nhắn" autocomplete="off"
          [(ngModel)]="text" (ngModelChange)="onInput()" (blur)="stopTyping()" aria-describedby="composer-error">
-  <button class="ca-send" type="submit" aria-label="Gửi" [disabled]="!text.trim()">
+  <button class="ca-send" type="submit" aria-label="Gửi" [disabled]="!canSend">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"></path><path d="M22 2 15 22l-4-9-9-4z"></path></svg>
   </button>
 </form>

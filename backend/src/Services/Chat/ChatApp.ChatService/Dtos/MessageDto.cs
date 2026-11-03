@@ -9,4 +9,5 @@ public record MessageDto(
     string SenderName,
     string Content,
     long SequenceNumber,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    AttachmentDto[]? Attachments = null);

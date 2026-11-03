@@ -135,11 +135,11 @@ async function main() {
   await request('http://localhost:5000/api/groups/' + addedGroup.id + '/members', 'POST', { userId: a.id }, b.accessToken);
   await check('Được thêm nhóm từ phía khác → danh sách tự cập nhật', async () => (await ba.evaluate(`document.querySelector('#gl-panel')?.innerText || ''`)).includes('Nhóm mới từ phía B'));
   await bb.call('Page.navigate', { url: 'http://localhost:' + port + '/chat/' + group.id });
-  await until(() => bb.evaluate(`!!document.querySelector('app-message-input input')`));
+  await until(() => bb.evaluate(`!!document.querySelector('app-message-input input[type=text]')`));
   // Mô phỏng gõ liên tục: DOM có thể sẵn sàng trước khi kết nối hub của trang mới hoàn tất.
   // Typing là tín hiệu best effort, một phím duy nhất ngay lúc bắt tay có thể bị bỏ qua hợp lệ.
   await check('Angular hiển thị đang gõ', async () => {
-    await bb.evaluate(`{ const e = document.querySelector('app-message-input input'); e.value='Đang nhập'; e.dispatchEvent(new Event('input', {bubbles:true})); }`);
+    await bb.evaluate(`{ const e = document.querySelector('app-message-input input[type=text]'); e.value='Đang nhập'; e.dispatchEvent(new Event('input', {bubbles:true})); }`);
     return (await ba.text()).includes('Presence UI B đang gõ');
   });
   await check('Dừng nhập tự xóa chỉ báo', async () => !(await ba.text()).includes('Presence UI B đang gõ'));
@@ -148,7 +148,7 @@ async function main() {
   const unread = async () => (await request('http://localhost:5000/api/notifications/unread','GET',undefined,a.accessToken)).find(c=>c.groupId===group.id);
   await until(async()=> (await unread()).unreadCount === 0);
   const readBefore = (await unread()).lastReadSequence;
-  await ba.evaluate(`{ const e=document.querySelector('app-message-input input'); e.value='Nháp được giữ khi xem tuần'; e.dispatchEvent(new Event('input',{bubbles:true})); }`);
+  await ba.evaluate(`{ const e=document.querySelector('app-message-input input[type=text]'); e.value='Nháp được giữ khi xem tuần'; e.dispatchEvent(new Event('input',{bubbles:true})); }`);
   await ba.evaluate(`{ const e=document.querySelector('#chat-week-date'); e.value='2026-10-12'; e.dispatchEvent(new Event('input',{bubbles:true})); Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Xem tuần').click(); }`);
   await check('Angular chọn tuần lịch sử',async()=> (await ba.text()).includes('Tuần 12/10/2026'));
   await check('Tuần cũ chỉ hiện tin đúng tuần',async()=> {
@@ -156,7 +156,7 @@ async function main() {
     return text.includes('Tin tuần cũ 1') && !text.includes('Đang nhập');
   });
   await check('Xem tuần cũ có nút về hiện tại và ẩn composer',()=>ba.evaluate(`!document.querySelector('app-message-input') && Array.from(document.querySelectorAll('button')).some(b=>b.textContent.trim()==='Về tin mới nhất')`));
-  await bb.evaluate(`{ const e=document.querySelector('app-message-input input'); e.value='Tin mới ngoài tuần đang xem'; e.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }`);
+  await bb.evaluate(`{ const e=document.querySelector('app-message-input input[type=text]'); e.value='Tin mới ngoài tuần đang xem'; e.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }`);
   await check('Tin ngoài tuần không chen vào lịch sử đang xem',async()=> {
     const text=await ba.evaluate(`document.querySelector('app-message-list')?.innerText || ''`);
     return (await unread()).unreadCount >= 1 && !text.includes('Tin mới ngoài tuần đang xem');
@@ -170,13 +170,13 @@ async function main() {
   await until(()=>ba.evaluate(`!document.querySelector('.ca-banner.reconnecting') && (document.querySelector('.ca-head')?.innerText || '').includes('1 thành viên khác đang online')`),30000);
   await check('Reconnect giữ tuần đang xem',async()=> (await ba.text()).includes('Tuần 12/10/2026') && (await ba.evaluate(`document.querySelector('app-message-list')?.innerText || ''`)).includes('Tin tuần cũ 1'));
   await ba.evaluate(`Array.from(document.querySelectorAll('button')).find(b=>b.textContent.trim()==='Về tin mới nhất').click()`);
-  await check('Về tin mới nhất phục hồi composer và lấy tin bị lỡ',async()=> (await ba.evaluate(`document.querySelector('app-message-list')?.innerText || ''`)).includes('Tin mới ngoài tuần đang xem') && await ba.evaluate(`!!document.querySelector('app-message-input input')`));
-  await check('Đổi tuần/reconnect giữ bản nháp chưa gửi',()=>ba.evaluate(`document.querySelector('app-message-input input').value==='Nháp được giữ khi xem tuần'`));
+  await check('Về tin mới nhất phục hồi composer và lấy tin bị lỡ',async()=> (await ba.evaluate(`document.querySelector('app-message-list')?.innerText || ''`)).includes('Tin mới ngoài tuần đang xem') && await ba.evaluate(`!!document.querySelector('app-message-input input[type=text]')`));
+  await check('Đổi tuần/reconnect giữ bản nháp chưa gửi',()=>ba.evaluate(`document.querySelector('app-message-input input[type=text]').value==='Nháp được giữ khi xem tuần'`));
   await check('Về luồng hiện tại mới đánh dấu đã đọc',async()=> (await unread()).unreadCount===0);
   try {
     execFileSync('docker', ['compose', 'stop', 'presence-service'], { cwd: path.resolve(__dirname, '..'), windowsHide: true, stdio: 'pipe' });
     await check('Presence lỗi → chưa xác định trạng thái', async () => (await ba.text()).includes('Chưa xác định trạng thái'));
-    await bb.evaluate(`{ const e=document.querySelector('app-message-input input'); e.value='Chat vẫn chạy khi Presence tắt'; e.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }`);
+    await bb.evaluate(`{ const e=document.querySelector('app-message-input input[type=text]'); e.value='Chat vẫn chạy khi Presence tắt'; e.dispatchEvent(new Event('input',{bubbles:true})); document.querySelector('app-message-input form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true})); }`);
     await check('Presence tắt vẫn chat được', async () => (await ba.text()).includes('Chat vẫn chạy khi Presence tắt'));
   } finally {
     execFileSync('docker', ['compose', 'start', 'presence-service'], { cwd: path.resolve(__dirname, '..'), windowsHide: true, stdio: 'pipe' });

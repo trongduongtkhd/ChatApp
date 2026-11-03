@@ -95,7 +95,7 @@ public static class ChatHistoryMigration
             foreach (var m in batch)
             {
                 groups[m.GroupId.ToString()] = Math.Max(groups.GetValueOrDefault(m.GroupId.ToString()), m.SequenceNumber);
-                sourceHash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(m, KafkaJson.Options) + "\n"));
+                sourceHash.AppendData(LegacyHashBytes(m));
             }
             if (apply || verify)
             {
@@ -112,7 +112,9 @@ public static class ChatHistoryMigration
                             if (!apply) throw new InvalidOperationException($"Thiếu message {m.Id}");
                             await store.Messages.InsertOneAsync(s, MongoChatStore.Document(m), cancellationToken: ct);
                         }
-                        else if (MongoChatStore.ToDto(existing) != m || existing["weekStartUtc"].ToUniversalTime() != Services.ChatWeek.StartUtc(m.CreatedAt))
+                        else if ((MongoChatStore.ToDto(existing) with { Attachments = null }) != (m with { Attachments = null })
+                            || MongoChatStore.ToDto(existing).Attachments is { Length: > 0 }
+                            || existing["weekStartUtc"].ToUniversalTime() != Services.ChatWeek.StartUtc(m.CreatedAt))
                             throw new InvalidOperationException($"Message khác nội dung/thời gian: {m.Id}");
                         var key = await store.Keys.Find(s, new BsonDocument("_id", m.Id.ToString())).FirstOrDefaultAsync(ct);
                         if (key is null)
@@ -128,12 +130,16 @@ public static class ChatHistoryMigration
                 foreach (var m in batch)
                 {
                     var target = await store.Messages.Find(new BsonDocument { ["_id"] = m.Id.ToString(), ["groupId"] = m.GroupId.ToString() }).FirstAsync();
-                    targetHash.AppendData(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(MongoChatStore.ToDto(target), KafkaJson.Options) + "\n"));
+                    targetHash.AppendData(LegacyHashBytes(MongoChatStore.ToDto(target)));
                 }
             }
             messageCount += batch.Count;
             if (messageCount % 1000 == 0) Console.WriteLine($"messages verified/read: {messageCount}");
         }
+
+        // Giữ đúng định dạng đối chiếu legacy trước khi DTO có attachments; không so array bằng reference.
+        static byte[] LegacyHashBytes(MessageDto m) => Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
+        { m.Id, m.GroupId, m.SenderId, m.SenderName, m.Content, m.SequenceNumber, m.CreatedAt }, KafkaJson.Options) + "\n");
 
         async Task MigrateOutboxAsync(List<BsonDocument> batch)
         {

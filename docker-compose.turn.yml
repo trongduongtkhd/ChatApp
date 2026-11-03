@@ -1,0 +1,27 @@
+# TURN chỉ cho thử nghiệm trên cùng máy. Không tự publish ra Internet.
+# Xem docs/VIDEO-CALLS.md trước khi bật; mặc định docker-compose.yml không include file này.
+services:
+  video-turn:
+    profiles: [turn]
+    image: coturn/coturn:4.18.0-r0
+    container_name: video-turn
+    command:
+      - -n
+      - --log-file=stdout
+      - --use-auth-secret
+      - --static-auth-secret=${VIDEO_TURN_SHARED_SECRET:?Run scripts/init-video-turn.ps1 first}
+      - --realm=chatapp.local
+      - --fingerprint
+      - --no-cli
+      - --no-tls
+      - --allow-loopback-peers
+      - --no-multicast-peers
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --external-ip=127.0.0.1
+    ports:
+      - "127.0.0.1:3479:3478/udp"
+      - "127.0.0.1:3479:3478/tcp"
+      - "127.0.0.1:49160-49200:49160-49200/udp"
+    networks: [chatapp-net]

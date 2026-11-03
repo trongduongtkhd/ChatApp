@@ -1,0 +1,16 @@
+# S3 local, không tài khoản AWS. Tạo secrets: ./scripts/init-attachment-storage.ps1
+services:
+  attachment-storage:
+    image: chrislusf/seaweedfs:4.51
+    container_name: attachment-storage
+    command: ["mini", "-dir=/data", "-ip=attachment-storage", "-ip.bind=0.0.0.0", "-admin.ui=false"]
+    env_file:
+      - ./infra/attachments.local.env
+    volumes:
+      - attachment-data:/data
+    networks:
+      - chatapp-net
+    restart: unless-stopped
+
+volumes:
+  attachment-data:

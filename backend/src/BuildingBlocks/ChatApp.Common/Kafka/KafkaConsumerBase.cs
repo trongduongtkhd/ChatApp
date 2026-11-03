@@ -103,6 +103,9 @@ public abstract class KafkaConsumerBase<TEvent>(
                     continue;
                 }
 
+                using var checkpointScope = scopeFactory.CreateScope();
+                using var checkpointLease = await checkpointScope.ServiceProvider
+                    .GetRequiredService<ChatApp.Common.Backup.BackupWriteGate>().EnterAsync(stoppingToken);
                 await ProcessAsync(result, stoppingToken);
 
                 // Ghi nhớ "group này đã xử lý xong tới offset này" lên Kafka (lưu trong topic __consumer_offsets).

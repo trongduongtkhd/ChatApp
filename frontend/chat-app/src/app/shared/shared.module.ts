@@ -8,8 +8,9 @@ import { ConfirmDialogComponent } from './components/confirm-dialog/confirm-dial
 import { ConnectionBannerComponent } from './components/connection-banner/connection-banner.component';
 import { UnreadBadgeComponent } from './components/unread-badge/unread-badge.component';
 import { ListTimePipe } from './pipes/list-time.pipe';
+import { VideoCallComponent, CallStreamDirective } from './components/video-call/video-call.component';
 
-const COMPONENTS = [AvatarComponent, UnreadBadgeComponent, ConnectionBannerComponent, ConfirmDialogComponent, AppRailComponent, ListTimePipe];
+const COMPONENTS = [AvatarComponent, UnreadBadgeComponent, ConnectionBannerComponent, ConfirmDialogComponent, AppRailComponent, ListTimePipe, VideoCallComponent, CallStreamDirective];
 
 // SharedModule: component/directive dùng lại ở nhiều feature (avatar, unread-badge, connection-banner...).
 // Feature module nào cần thì import. KHÔNG chứa service singleton (service để ở core/).

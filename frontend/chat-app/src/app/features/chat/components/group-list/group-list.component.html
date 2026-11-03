@@ -30,7 +30,7 @@
         <span class="prev" [ngSwitch]="item.last === undefined ? 'loading' : item.last === null ? 'none' : 'msg'">
           <ng-container *ngSwitchCase="'loading'">&nbsp;</ng-container>
           <ng-container *ngSwitchCase="'none'">Chưa có tin nhắn</ng-container>
-          <ng-container *ngSwitchCase="'msg'">{{ item.last!.senderId === myId ? 'Bạn' : item.last!.senderName }}: {{ item.last!.content }}</ng-container>
+          <ng-container *ngSwitchCase="'msg'">{{ item.last!.senderId === myId ? 'Bạn' : item.last!.senderName }}: {{ preview(item.last!) }}</ng-container>
         </span>
         <app-unread-badge [count]="item.unread"></app-unread-badge>
       </span>

@@ -4,7 +4,7 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { EMPTY, forkJoin, Observable, of, Subject, Subscription, throwError, timer } from 'rxjs';
 import { auditTime, catchError, expand, map, mergeMap, reduce, retryWhen, startWith, switchMap, tap } from 'rxjs/operators';
 import { GroupDetail, groupTitle } from '../../../../core/models/group';
-import { Message, PendingMessage } from '../../../../core/models/message';
+import { Attachment, Message, PendingMessage } from '../../../../core/models/message';
 import { AuthService } from '../../../../core/services/auth.service';
 import { ChatHubService, SendError } from '../../../../core/services/chat-hub.service';
 import { uuidv7 } from '../../../../core/utils/guid';
@@ -12,6 +12,7 @@ import { GroupApiService } from '../../../../core/services/group-api.service';
 import { MessageApiService } from '../../../../core/services/message-api.service';
 import { NotificationApiService } from '../../../../core/services/notification-api.service';
 import { vietnamToday, mondayFor, inChatWeek } from '../../../../core/utils/chat-week';
+import { VideoCallService } from '../../../../core/services/video-call.service';
 
 const PAGE_SIZE = 50;
 const MAX_CATCHUP_PAGES = 10; // lấy bù tối đa 500 tin sau một lần mất kết nối
@@ -78,7 +79,7 @@ export class ChatWindowComponent implements OnDestroy {
   set draft(value: string) { this.drafts.set(this.groupId, value); }
   private readonly read$ = new Subject<void>();
   private readonly lastMarked = new Map<string, number>(); // seq đã gửi "đã đọc" gần nhất, theo nhóm
-  private groupId = '';
+  groupId = '';
   private readonly retry$ = new Subject<void>();
   private readonly sub = new Subscription();
   private olderSub?: Subscription;
@@ -86,6 +87,7 @@ export class ChatWindowComponent implements OnDestroy {
   private recoveringHistory = false;
 
   constructor(
+    readonly calls: VideoCallService,
     route: ActivatedRoute,
     private readonly router: Router,
     private readonly auth: AuthService,
@@ -172,10 +174,10 @@ export class ChatWindowComponent implements OnDestroy {
 
   // Bấm Gửi: sinh messageId TRƯỚC, hiện ngay bong bóng mờ (optimistic UI), rồi mới gửi.
   // Id có trước nên dù gửi lại bao nhiêu lần, server vẫn nhận ra là CÙNG một tin.
-  send(content: string): void {
+  send(input: { content: string; attachments: Attachment[] }): void {
     if (this.selectedWeek) return;
     this.hub.setTyping(this.groupId, false);
-    const p: PendingMessage = { id: uuidv7(), groupId: this.groupId, content, status: 'sending' };
+    const p: PendingMessage = { id: uuidv7(), groupId: this.groupId, content: input.content, attachments: input.attachments, status: 'sending' };
     this.setPending(p.groupId, [...this.pending, p]);
     this.deliver(p);
   }
@@ -317,7 +319,7 @@ export class ChatWindowComponent implements OnDestroy {
 
   private deliver(p: PendingMessage): void {
     this.sendError = null;
-    this.hub.sendMessage(p.id, p.groupId, p.content).then(
+    this.hub.sendMessage(p.id, p.groupId, p.content, (p.attachments || []).map(a => a.id)).then(
       m => this.confirm(m),
       (err: SendError) => {
         this.updatePending(p.groupId, p.id, 'failed');

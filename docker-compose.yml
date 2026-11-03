@@ -4,6 +4,8 @@
 name: chatapp
 include:
   - docker-compose.mongo.yml
+  - docker-compose.attachments.yml
+  - docker-compose.backup.yml
 
 # Khai báo chung cho MỌI bản chat-service (Phần 8). "x-..." là phần mở rộng, Compose không coi là service.
 # &chat-service đặt tên (anchor) cho khối này; các service bên dưới chép lại bằng "<<: *chat-service"
@@ -14,14 +16,22 @@ x-chat-service: &chat-service
     dockerfile: src/Services/Chat/ChatApp.ChatService/Dockerfile
   # 2 bản dùng CHUNG một image: cùng code, khác tiến trình (giống chạy 2 lần một file exe).
   image: chatapp/chat-service
-  environment:
+  env_file:
+    - ./infra/attachments.local.env
+  environment: &chat-service-environment
     # Biến môi trường ghi đè appsettings.json; "__" thay cho ":" (Kafka__BootstrapServers = Kafka:BootstrapServers).
     # Trong mạng Docker gọi nhau bằng TÊN container (Docker DNS), không dùng localhost:
     # localhost trong container là chính container đó.
     ConnectionStrings__ChatDb: Host=postgres;Port=5432;Database=chat_db;Username=${POSTGRES_USER};Password=${POSTGRES_PASSWORD}
     Mongo__ConnectionString: mongodb://mongo-router:27017/?appName=ChatApp&serverSelectionTimeoutMS=3000
     Mongo__Database: chat_history
+    Attachments__Endpoint: http://attachment-storage:8333
+    Attachments__Bucket: chatapp-attachments
+    VideoCalls__TurnUrls__0: ${VIDEO_TURN_URL:-}
+    VideoCalls__TurnSharedSecret: ${VIDEO_TURN_SHARED_SECRET:-}
+    VideoCalls__IceTransportPolicy: ${VIDEO_ICE_TRANSPORT_POLICY:-all}
     ConnectionStrings__Redis: redis:6379
+    Backup__CoordinationEnabled: "true"
     Kafka__BootstrapServers: kafka:29092
     # group-service vẫn chạy trên Windows → host.docker.internal = "máy Windows" nhìn từ trong container (Docker Desktop).
     GrpcServices__GroupService: http://host.docker.internal:5012
@@ -33,6 +43,7 @@ x-chat-service: &chat-service
     #   $env:CHAT_BACKPLANE="false"; docker compose up -d chat-service-1 chat-service-2
     # Bật lại: Remove-Item Env:CHAT_BACKPLANE; docker compose up -d chat-service-1 chat-service-2
     SignalR__RedisBackplane: ${CHAT_BACKPLANE:-true}
+    Operations__SeqUrl: http://host.docker.internal:5341
   depends_on:
     mongo-init:
       condition: service_completed_successfully
@@ -48,6 +59,17 @@ x-chat-service: &chat-service
     - chatapp-net
 
 services:
+  # Prepare only the archive volume. Never changes postgres-data.
+  postgres-archive-init:
+    image: postgres:17-alpine
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["chown postgres:postgres /archive && chmod 700 /archive"]
+    volumes:
+      - postgres-wal-archive:/archive
+    network_mode: none
+    restart: "no"
+
   presence-service:
     build:
       context: ./backend
@@ -59,6 +81,7 @@ services:
       Presence__HeartbeatSeconds: ${PRESENCE_HEARTBEAT_SECONDS:-10}
       Presence__LeaseSeconds: ${PRESENCE_LEASE_SECONDS:-60}
       Presence__SweepSeconds: 2
+      Operations__SeqUrl: http://host.docker.internal:5341
     # Chỉ health endpoint mở trên localhost; gRPC 5015 chỉ trong mạng Docker.
     ports:
       - "127.0.0.1:5005:5005"
@@ -71,6 +94,18 @@ services:
   postgres:
     image: postgres:17-alpine
     container_name: postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - 'archive_command=sh /etc/postgresql/archive-wal.sh "%p" "%f"'
+      - -c
+      - archive_timeout=60s
+      - -c
+      - max_slot_wal_keep_size=256MB
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -80,6 +115,11 @@ services:
       - postgres-data:/var/lib/postgresql/data
       # Script trong /docker-entrypoint-initdb.d chỉ chạy khi volume còn trống
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./infra/postgres/archive-wal.sh:/etc/postgresql/archive-wal.sh:ro
+      - postgres-wal-archive:/var/lib/postgresql/wal-archive
+    depends_on:
+      postgres-archive-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
       interval: 5s
@@ -91,6 +131,7 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
     ports:
       - "6379:6379"
     volumes:
@@ -191,12 +232,18 @@ services:
   chat-service-1:
     <<: *chat-service
     container_name: chat-service-1
+    environment:
+      <<: *chat-service-environment
+      Backup__InstanceId: chat-1
     ports:
       - "5003:8080"
 
   chat-service-2:
     <<: *chat-service
     container_name: chat-service-2
+    environment:
+      <<: *chat-service-environment
+      Backup__InstanceId: chat-2
     ports:
       - "5013:8080"
 
@@ -222,5 +269,6 @@ networks:
 
 volumes:
   postgres-data:
+  postgres-wal-archive:
   redis-data:
   kafka-data:

@@ -88,7 +88,9 @@ a:hover { color: #0552CC; }
 .ca-meta { font-size: 13px; line-height: 16px; color: var(--ink-muted); }
 
 /* ---------- Bố cục chính: thanh bên + khung chat (+ panel thành viên) ---------- */
-.ca-shell { display: flex; height: 100vh; overflow: hidden; }
+body.ca-recovery-mode { padding-top: 32px; --app-height: calc(100vh - 32px); }
+.ca-recovery-banner { position: fixed; top: 0; left: 0; right: 0; height: 32px; z-index: 10000; background: #9b6412; color: white; display: flex; align-items: center; justify-content: center; font-size: 12px; white-space: nowrap; overflow: hidden; }
+.ca-shell { display: flex; height: var(--app-height, 100vh); overflow: hidden; }
 .ca-side {
   flex: 1 1 320px; max-width: 360px; min-width: 0;
   background: var(--surface-alt); border-right: 1px solid var(--line);
@@ -349,7 +351,7 @@ button.ca-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 
 
 /* ---------- Bước 9b: rail điều hướng + trang Cài đặt ---------- */
 /* .ca-app = rail (72px) + phần nội dung (khung chat hoặc trang cài đặt) */
-.ca-app { display: flex; height: 100vh; overflow: hidden; }
+.ca-app { display: flex; height: var(--app-height, 100vh); overflow: hidden; }
 .ca-app > .ca-shell, .ca-app > .ca-page { flex: 1; min-width: 0; height: 100%; }
 
 .ca-rail {
@@ -393,3 +395,21 @@ button.ca-chip:focus-visible { outline: 2px solid var(--brand); outline-offset: 
 .ca-option input { position: absolute; opacity: 0; pointer-events: none; }
 .ca-option.checked { border-color: var(--brand); box-shadow: 0 0 0 1px var(--brand); background: var(--brand-soft); color: var(--brand); }
 .ca-option:focus-within { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* Attachments use existing theme colors. */
+.ca-attachment-drafts { display: flex; flex-direction: column; gap: 8px; padding: 10px 16px 0; max-height: 240px; overflow: auto; }
+.ca-attachment-draft { display: flex; gap: 10px; align-items: center; border: 1px solid var(--line); border-radius: 12px; padding: 8px; }
+.ca-attachment-draft img { width: 54px; height: 54px; object-fit: cover; border-radius: 8px; }
+.ca-attachment-info { min-width: 0; flex: 1; display: flex; flex-direction: column; font-size: 12px; gap: 3px; }
+.ca-attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ca-composer > input[type=file] { display: none; }
+app-message-attachment { display: block; margin-top: 5px; min-width: 0; }
+.ca-attachment { min-width: 150px; max-width: 260px; border: 1px solid currentColor; border-radius: 10px; padding: 8px; }
+.ca-file-name { display: block; overflow-wrap: anywhere; font-size: 13px; }
+.ca-file-actions { display: flex; justify-content: space-between; gap: 14px; font-size: 12px; margin-top: 6px; }
+.ca-file-actions .ca-link { color: inherit; }
+.ca-image-open { display: flex; align-items: center; justify-content: center; width: 220px; max-width: 100%; height: 170px; background: transparent; color: inherit; border: 0; padding: 0; cursor: pointer; }
+.ca-image-open img { display: block; max-width: 100%; max-height: 170px; object-fit: contain; border-radius: 6px; }
+.ca-image-lightbox { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.9); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 20px; }
+.ca-image-lightbox > img { max-width: 95vw; max-height: 80vh; object-fit: contain; }
+.ca-image-lightbox > button { align-self: flex-end; }

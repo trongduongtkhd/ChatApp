@@ -22,14 +22,10 @@ async function connect(user,port=5003,notification=false){const hub=new signalr.
 
 function localService(name,start){
   if(!['Identity','Group'].includes(name))throw new Error('Unexpected service');
-  const exe='ChatApp.'+name+'Service.exe', project='backend/src/Services/'+name+'/ChatApp.'+name+'Service';
-  if(start){
-    const output=fs.openSync(path.join(root,'.admin-'+name+'.log'),'a'),error=fs.openSync(path.join(root,'.admin-'+name+'.err.log'),'a');
-    const child=spawn('dotnet',['run','--no-build','--project',project],{cwd:root,windowsHide:true,detached:true,stdio:['ignore',output,error]});
-    child.unref();fs.closeSync(output);fs.closeSync(error);return;
-  }
-  const command=`Get-CimInstance Win32_Process | Where-Object { $_.Name -eq '${exe}' -and $_.ExecutablePath.StartsWith('${root}' + [IO.Path]::DirectorySeparatorChar) } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`;
-  execFileSync('powershell',['-NoProfile','-Command',command],{cwd:root,encoding:'utf8',stdio:'pipe',windowsHide:true,timeout:15000});
+  // Shared helper validates the apphost path, handles dual IPv4/IPv6 listeners,
+  // and gives background services no inherited stdio pipes from this test.
+  execFileSync('powershell.exe',['-NoProfile','-ExecutionPolicy','Bypass','-File',path.join(__dirname,'control-local-service.ps1'),'-Service',name,'-Action',start?'Start':'Stop'],
+    {cwd:root,windowsHide:true,stdio:'ignore',timeout:30000});
 }
 async function ready(port){await until(async()=>{try{await api('/','GET',undefined,undefined,port);return true;}catch{return false;}},30000);}
 async function main(){

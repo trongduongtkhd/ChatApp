@@ -1,0 +1,33 @@
+groups:
+  - name: chatapp
+    rules:
+      - alert: ChatAppTargetDown
+        expr: up{job=~"chatapp-.*"} == 0
+        for: 20s
+        labels: {severity: critical}
+        annotations: {summary: "ChatApp metrics target is unreachable"}
+      - alert: ChatAppStorageNotReady
+        expr: chatapp_ready == 0
+        for: 20s
+        labels: {severity: critical}
+        annotations: {summary: "Required storage is unavailable"}
+      - alert: ChatAppCircuitOpen
+        expr: chatapp_circuit_state == 1
+        for: 5s
+        labels: {severity: warning}
+        annotations: {summary: "Read-only dependency circuit is open"}
+      - alert: ChatAppOutboxBacklog
+        expr: chatapp_outbox_pending > 100
+        for: 60s
+        labels: {severity: warning}
+        annotations: {summary: "Unpublished events are accumulating"}
+      - alert: ChatAppSendFailures
+        expr: sum(rate(chatapp_hub_calls_total{method=~"SendMessage.*",result="failure"}[1m])) / clamp_min(sum(rate(chatapp_hub_calls_total{method=~"SendMessage.*"}[1m])), 0.001) > 0.1
+        for: 30s
+        labels: {severity: warning}
+        annotations: {summary: "More than ten percent of hub sends are failing"}
+      - alert: ChatAppHighSendLatency
+        expr: histogram_quantile(0.95, sum by (le) (rate(chatapp_hub_duration_seconds_bucket{method=~"SendMessage.*"}[1m]))) > 1
+        for: 60s
+        labels: {severity: warning}
+        annotations: {summary: "Hub server processing p95 exceeds one second"}

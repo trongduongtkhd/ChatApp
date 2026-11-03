@@ -18,7 +18,7 @@
       <div class="ca-group">
         <app-avatar [name]="$any(row).senderName" size="sm" [online]="onlineIds.has($any(row).messages[0].senderId)"></app-avatar>
         <div class="col">
-          <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg in" [attr.title]="'#' + m.sequenceNumber">{{ m.content }}</div>
+          <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg in" [attr.title]="'#' + m.sequenceNumber"><span *ngIf="m.content">{{ m.content }}</span><app-message-attachment *ngFor="let a of m.attachments" [groupId]="m.groupId" [attachment]="a"></app-message-attachment></div>
         </div>
       </div>
       <div class="ca-time in">{{ $any(row).time }}</div>
@@ -26,7 +26,7 @@
 
     <!-- Cụm tin của mình: giờ dưới bong bóng cuối; tin cuối cùng của mình gộp "· Đã gửi ✓" -->
     <div *ngSwitchCase="'out'" class="ca-out">
-      <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg out" [attr.title]="'#' + m.sequenceNumber">{{ m.content }}</div>
+      <div *ngFor="let m of $any(row).messages; trackBy: trackMsg" class="ca-msg out" [attr.title]="'#' + m.sequenceNumber"><span *ngIf="m.content">{{ m.content }}</span><app-message-attachment *ngFor="let a of m.attachments" [groupId]="m.groupId" [attachment]="a"></app-message-attachment></div>
       <div class="ca-time">
         {{ $any(row).time }}<ng-container *ngIf="$any(row).messages[$any(row).messages.length - 1].id === deliveredId">
           · <span class="ca-status">Đã gửi <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"></path></svg></span>
@@ -38,7 +38,7 @@
   <!-- Tin của mình chưa có sequenceNumber: luôn nằm CUỐI (mới nhất), theo thứ tự bấm Gửi. -->
   <div *ngIf="pending.length" class="ca-out">
     <ng-container *ngFor="let p of pending; trackBy: trackMsg">
-      <div class="ca-msg out" [class.sending]="p.status === 'sending'">{{ p.content }}</div>
+      <div class="ca-msg out" [class.sending]="p.status === 'sending'">{{ p.content }}<div *ngFor="let a of p.attachments">{{ a.kind === 'image' ? 'Ảnh: ' : 'Tệp: ' }}{{ a.fileName }}</div></div>
       <div *ngIf="p.status === 'sending'" class="ca-status">Đang gửi…</div>
       <div *ngIf="p.status === 'failed'" class="ca-status failed">
         Không gửi được · <button class="ca-link" type="button" (click)="resend.emit(p.id)">Gửi lại</button>

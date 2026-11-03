@@ -11,10 +11,10 @@ namespace ChatApp.ChatService.Services;
 public enum SendStatus { Created, Duplicate, IdTaken }
 public record SendMessageResult(SendStatus Status, MessageDto? Message);
 
-public sealed class MessageService(MongoChatStore store, SequenceGenerator sequence)
+public sealed class MessageService(MongoChatStore store, SequenceGenerator sequence, AttachmentService attachments)
 {
     public async Task<SendMessageResult> SendAsync(Guid messageId, Guid groupId, Guid senderId,
-        string senderName, string content, CancellationToken ct)
+        string senderName, string content, CancellationToken ct, Guid[]? attachmentIds = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(15));
@@ -35,8 +35,10 @@ public sealed class MessageService(MongoChatStore store, SequenceGenerator seque
                         ["_id"] = messageId.ToString(), ["groupId"] = groupId.ToString(), ["senderId"] = senderId.ToString()
                     }, cancellationToken: transactionCt);
                     var seq = await sequence.NextAsync(s, groupId, transactionCt);
-                    var message = new MessageDto(messageId, groupId, senderId, senderName, content, seq, createdAt);
-                    var preview = content.Length <= 50 ? content : content[..(char.IsHighSurrogate(content[49]) ? 49 : 50)];
+                    var files = await attachments.AttachAsync(s, attachmentIds ?? [], groupId, senderId, messageId, transactionCt);
+                    var message = new MessageDto(messageId, groupId, senderId, senderName, content, seq, createdAt, files);
+                    var previewText = content.Length > 0 ? content : files.All(f => f.Kind == "image") ? "Đã gửi ảnh" : "Đã gửi tệp: " + files[0].FileName;
+                    var preview = previewText.Length <= 50 ? previewText : previewText[..(char.IsHighSurrogate(previewText[49]) ? 49 : 50)];
                     var evt = new MessageSent(messageId, groupId, senderId, senderName, seq, preview)
                         { EventId = eventId, OccurredAt = createdAt };
                     await store.Messages.InsertOneAsync(s, MongoChatStore.Document(message), cancellationToken: transactionCt);

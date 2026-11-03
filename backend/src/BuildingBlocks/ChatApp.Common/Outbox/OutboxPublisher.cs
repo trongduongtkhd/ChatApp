@@ -56,6 +56,7 @@ public sealed class OutboxPublisher<TDbContext>(
     {
         // BackgroundService là Singleton, DbContext là Scoped → tự tạo scope cho mỗi lô.
         using var scope = scopeFactory.CreateScope();
+        using var checkpointLease = await scope.ServiceProvider.GetRequiredService<ChatApp.Common.Backup.BackupWriteGate>().EnterAsync(ct);
         var db = scope.ServiceProvider.GetRequiredService<TDbContext>();
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);

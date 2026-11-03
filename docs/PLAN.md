@@ -1,5 +1,13 @@
 # Kế hoạch làm từng phần
 
+## Phần 11e — Ảnh/file local (đã duyệt 28/10/2026)
+- SeaweedFS Docker + volume/credentials local, không AWS.
+- REST upload/status/cancel/content, quyền Identity/Group, validation/giới hạn.
+- Mongo attachment state, claim cùng giao dịch message/Outbox, cleanup cạnh tranh an toàn.
+- Angular chọn nhiều file/preview/progress/retry, hiển thị/tải, draft theo conversation, tuần và chat riêng.
+- Build .NET/Angular 12 Node 14, API/race/outage/UI/persistence và hồi quy; dọn fixture cả SQL/Mongo/Redis/object.
+- Hướng dẫn: `docs/ATTACHMENTS.md`; test: `node scripts/attachment-test.cjs --ui`.
+
 Mỗi phần: giải thích trước → code từng bước → giải thích khái niệm gắn với code → hướng dẫn test → kịch bản lỗi.
 
 | # | Nội dung | Khái niệm cần giải thích | Chương | Cách test / demo chính |
@@ -15,13 +23,36 @@ Mỗi phần: giải thích trước → code từng bước → giải thích k
 | 9 | notification-service: unread, idempotent consumer, hub | At-least-once, idempotent consumer | 4, 6 | Gửi lại cùng event → không đếm 2 lần |
 | 10 | Angular: login, danh sách nhóm, khung chat, unread | SignalR client, withAutomaticReconnect, guard, interceptor JWT | 4, 8 | Chat 2 trình duyệt; tắt 1 bản chat-service → tự kết nối lại |
 | 11 | Bạn bè và nhắn tin riêng (chi tiết bên dưới) | Quan hệ 2 chiều lưu 1 dòng + máy trạng thái (Pending → Accepted/Declined/Cancelled, Accepted → Removed, mời lại), ID tất định theo cặp userId (UUID v5, chống tạo trùng), thứ tự sự kiện theo key trong 1 topic, idempotent consumer, eventual consistency | 2, 4, 5, 6 | A mời B → B chấp nhận → nhóm 2 người tự xuất hiện ở cả 2 bên; gửi lại cùng sự kiện / chấp nhận 2 lần → vẫn 1 nhóm; hủy kết bạn → mất chat riêng, kết bạn lại → thấy lịch sử cũ |
-| 12 | Chịu lỗi: Polly, Health Checks, Serilog + Seq | Retry, circuit breaker, timeout, health check, log tập trung | 8 | Tắt group-service → circuit breaker mở, log trong Seq |
-| 13 | Sao lưu: PostgreSQL replication, backup Hangfire, Redis AOF | Replication vs backup, restore, Kafka replay | 3, 7 | Tắt primary đọc replica; xóa nhầm rồi restore |
+| 12 | Chịu lỗi: Polly, Health Checks, Serilog/Seq, Prometheus/Grafana, Kubernetes/HPA | Retry, circuit breaker, timeout, health check, log tập trung | 8 | Tắt group-service → circuit breaker mở, log trong Seq |
+| 13 | Sao lưu toàn app: PG base/WAL/PITR, standby, checkpoint Mongo/Kafka/object, Redis AOF, Hangfire/lưu giữ, web recovery | Replication vs backup, snapshot, barrier, offsets, manifest/checksum, restore | 3, 6, 7 | Vừa chat vừa backup; xóa nhóm thử; web riêng lấy lại nhóm/tin/file đúng mốc |
 | 11b | Công việc 1 đã duyệt: Presence Service, lease 60s/heartbeat 10s, trạng thái mọi bạn bè/nhóm, đang gõ, thu hồi phòng | gRPC theo lô, lease, Redis TIME/Lua, snapshot, Pub/Sub, SignalR, eventual consistency | 2, 3, 4, 5, 6, 8 | `chat-test.cs -- presence`, `-- presencekill`, `node scripts/presence-ui-test.cjs` |
 | 11c | Công việc 2 đã duyệt: MongoDB hai shard, transaction/Outbox, chuyển dữ liệu và lịch sử tuần | Hash sharding, transaction/counter, idempotency, lease/fencing, index/keyset, migration/backup | 2, 3, 4, 5, 6, 7, 8 | `scripts/test-chat-system.ps1`: 110 kiểm tra tích hợp và UI |
 | 11d | Công việc 3 đã duyệt: SystemAdmin, khóa tài khoản, role nhóm, phê duyệt và link mời | RBAC, gRPC nguồn quyền, version/revocation, transaction/row lock, state machine, random token/hash | 2, 3, 4, 5, 6, 8 | `scripts/test-admin-system.ps1`, chi tiết `docs/ADMIN.md` |
 
 Phần 11b bổ sung theo phê duyệt ngày 27/10/2026, tách khỏi Phần 12 (Polly/log tập trung) và Phần 13. Chi tiết DESIGN mục 8. Thực hiện: Contracts + Presence → gRPC audience → Chat heartbeat/relay/thu hồi → Angular toàn bộ bạn bè/nhóm + đang gõ → build và kiểm thử tích hợp/lỗi → tài liệu. MongoDB và admin chưa thuộc phạm vi này.
+
+## Phần 13 – Hoàn thành sao lưu toàn ứng dụng (yêu cầu mở rộng 31/10/2026)
+
+- Thực hiện toàn bộ chức năng chương 7 theo yêu cầu mới, không mở rộng sang Phần 12/chương 8.
+- PostgreSQL online base + named point/WAL, cửa ghi ngắn theo ACK/token/generation để chốt mốc phối hợp, đọc vẫn tiếp tục.
+- Mongo snapshot cùng atClusterTime trên hai shard; catalog/index và bytes Attached đối chiếu hash; Kafka pending ranges và mapping group offsets, giữ Outbox/idempotency.
+- Redis AOF/restart, RDB đối chiếu; recovery không nạp presence/call/lease cũ. PostgreSQL streaming standby riêng, chưa tự failover.
+- Hangfire/PostgreSQL storage, lịch hourly/daily/disabled, N bundles + pin recovery và archive spool retention.
+- Trang admin Angular 12 tạo/kiểm tra/phục hồi riêng/lịch/cleanup. Clone chạy web 4201, nguồn 4200, cấu hình/network/volumes riêng, tắt job trong recovery.
+- Build .NET/Angular Node14; test PG PITR/lỗi/fingerprint, Kafka nhiều bookmarks, system online/restore exact IDs+bytes, Edge UI/download/checksum/retention và infrastructure faults; dọn fixture.
+- Tài liệu: `BACKUP.md` demo, `BACKUP-CODE.md` đọc code từng phần, `BACKUP-POSTGRES.md` bài riêng.
+
+## Phần 13.1 – PostgreSQL online backup và PITR (bước đầu đã duyệt 31/10/2026)
+
+- Chỉ làm bước PostgreSQL của chương 7; chưa đánh dấu toàn bộ Phần 13 hoàn thành.
+- `pg_basebackup` + WAL lưu trữ liên tục thay cho chỉ dùng `pg_dump` khi cần phục hồi theo mốc.
+- Compose cấu hình archive volume riêng, namespace theo system identifier; tạo archive nguyên tử, không ghi đè file khác nội dung.
+- Script PowerShell 5.1: backup và verify, tạo named restore point/đóng WAL/copy vào bundle, restore đến đúng LSN.
+- Phục hồi trên container và volume mới, network none, không publish cổng; PostgreSQL dừng replay tại mốc và chỉ cho đọc.
+- Demo trong database `backup_demo_<id>`: A → base backup → B → mốc → xóa B → phục hồi A+B; ghi liên tục khi `pg_stat_progress_basebackup` đang hoạt động.
+- Test dữ liệu hỏng/thiếu WAL/target sai/không ghi đè restore cũ; fingerprint database ứng dụng trước/sau và dọn fixture.
+- Hướng dẫn, giải thích theo file và demo: `docs/BACKUP.md`.
+- Các phần ngoài bước 13.1 đã được đưa vào phạm vi Phần 13 mở rộng phía trên. Automatic failover vẫn ngoài phần sao lưu.
 
 ## Phần 11c – Công việc 2 đã duyệt 27/10/2026
 - MongoDB hai shards thực, config replica set + mongos, index hash groupId và index lịch sử/tuần.
@@ -38,6 +69,14 @@ Phần 11b bổ sung theo phê duyệt ngày 27/10/2026, tách khỏi Phần 12 
 - Owner/Admin/Member, chuyển Owner, requests, approval setting, invite link hash/rotation, transaction và Outbox.
 - Trang admin + panel nhóm + join link trên Angular 12.
 - Build, API/race/outage/UI, hồi quy 11b/11c; cập nhật tài liệu và cách demo.
+
+## Phần 11f – Gọi video 1–1 đã duyệt 28/10/2026
+
+- ChatHub signaling và coordinator kiểm account/bạn bè/thành viên nguồn; Redis state machine nguyên tử cho hai replica, monitor deadline/thu hồi quyền.
+- Angular 12 WebRTC, lời mời toàn ứng dụng, nhiều tab chỉ một nơi nhận; camera/mic, trạng thái và dọn media khi kết thúc/lỗi.
+- STUN/TURN cấu hình, credential TURN tạm thời; Coturn Docker local tùy chọn. Không thuê dịch vụ hoặc đăng ký tài khoản trả phí.
+- Build và test signaling/race/quyền, media thật giữa hai trình duyệt dùng thiết bị giả, hồi quy chat/file/presence; hướng dẫn HTTPS Quick Tunnel và giới hạn NAT.
+- Tài liệu và demo lỗi: `docs/VIDEO-CALLS.md`.
 
 ## Phần 11 – Bạn bè và nhắn tin riêng
 Thiết kế chi tiết: DESIGN.md mục 3 (`friendships`, `groups.is_direct`), mục 4 (`identity.friendship-changed`), mục 5 (API bạn bè, quy tắc nhóm riêng).
@@ -71,3 +110,14 @@ Kiểm tra cần có (Bước 5, 7):
 - (Bước 4b) Đẩy lại một `Removed` cũ sau khi đã kết bạn lại → vẫn còn 2 thành viên.
 - (Bước 4b) Gửi tin để chat riêng có số chưa đọc, rồi đẩy lại cả chuỗi sự kiện cũ → số chưa đọc không về 0, không phát thêm member-removed / member-added.
 - Báo cáo: so sánh 3 cách chống trùng / sai thứ tự (`processed_events` Phần 9, mã tất định + `ON CONFLICT` Bước 4, số phiên bản Bước 4b) và lý do không dùng giờ hệ thống.
+
+
+## Phần 12 — Chương 8 đã duyệt toàn bộ 01/11/2026
+
+1. Health liveness/readiness, probes theo service.
+2. Serilog + Seq structured log, service/instance/trace.
+3. Polly cho RPC đọc account/membership Group/Identity, retry giới hạn và circuit state.
+4. Prometheus/Grafana: app metrics, resource metrics, dashboard, cảnh báo.
+5. Kind Kubernetes Chat Deployment/Service; chuyển mode, backup writer động và export adapter.
+6. Metrics Server và HPA 2..4; tải nghiệp vụ thật, Pod mới nhận traffic, scale-down; requests 200m, target 60%.
+7. Fault/regression/backup restore/UI, cleanup fixture và fingerprint; tài liệu RESILIENCE.md, script test-resilience.ps1.
