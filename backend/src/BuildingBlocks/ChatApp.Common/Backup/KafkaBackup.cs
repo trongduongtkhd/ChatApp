@@ -110,7 +110,56 @@ public static class KafkaBackup
             }
         }
         foreach (var group in commits)
-            await admin.AlterConsumerGroupOffsetsAsync([new ConsumerGroupTopicPartitionOffsets(group.Key, group.Value)]);
+            await RestoreGroupOffsetsAsync(admin, new ConsumerGroupTopicPartitionOffsets(group.Key, group.Value), ct);
+        // A successful API call is not sufficient: verify every restored bookmark
+        // before recovery consumers are allowed to start.
+        foreach (var group in commits)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var checker = Reader(bootstrap, group.Key);
+            var actual = checker.Committed(group.Value.Select(p => p.TopicPartition), TimeSpan.FromSeconds(5))
+                .ToDictionary(p => p.TopicPartition, p => p.Offset.Value);
+            foreach (var expected in group.Value)
+                if (!actual.TryGetValue(expected.TopicPartition, out var offset) || offset != expected.Offset.Value)
+                    throw new InvalidOperationException($"Recovered Kafka offset mismatch: {group.Key}/{expected.TopicPartition}.");
+        }
     }
+
+    private static async Task RestoreGroupOffsetsAsync(IAdminClient admin, ConsumerGroupTopicPartitionOffsets offsets, CancellationToken ct)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                await admin.AlterConsumerGroupOffsetsAsync([offsets],
+                    new AlterConsumerGroupOffsetsOptions { RequestTimeout = TimeSpan.FromSeconds(5) });
+                return;
+            }
+            catch (AlterConsumerGroupOffsetsException ex)
+            {
+                // Kafka may report success at group level while individual
+                // partitions fail, especially on a fresh __consumer_offsets topic.
+                var errors = ex.Results.SelectMany(r => new[] { r.Error }
+                    .Concat(r.Partitions.Select(p => p.Error))).Where(e => e.IsError).ToArray();
+                var detail = string.Join("; ", errors.Select(e => $"{e.Code}: {e.Reason}"));
+                if (errors.Length == 0 || errors.Any(e => !CoordinatorStarting(e)) || DateTime.UtcNow >= deadline)
+                    throw new InvalidOperationException($"Cannot restore Kafka offsets for {offsets.Group}: {detail}", ex);
+                Console.Error.WriteLine($"Waiting for recovery Kafka coordinator ({offsets.Group}): {detail}");
+            }
+            catch (KafkaException ex) when (CoordinatorStarting(ex.Error) && DateTime.UtcNow < deadline)
+            {
+                Console.Error.WriteLine($"Waiting for recovery Kafka coordinator ({offsets.Group}): {ex.Error.Code}");
+            }
+            await Task.Delay(500, ct);
+        }
+    }
+
+    private static bool CoordinatorStarting(Error error) => error.Code is
+        ErrorCode.GroupCoordinatorNotAvailable or ErrorCode.NotCoordinatorForGroup or ErrorCode.GroupLoadInProgress or
+        ErrorCode.RequestTimedOut or ErrorCode.Local_TimedOut or ErrorCode.Local_WaitCoord or
+        ErrorCode.Local_Transport or ErrorCode.NetworkException or ErrorCode.BrokerNotAvailable;
+
     private static string Filename(PartitionPoint point) => point.Topic + "-" + point.Partition + ".jsonl";
 }

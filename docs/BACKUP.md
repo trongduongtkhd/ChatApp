@@ -2,6 +2,19 @@
 
 Sau khi bật chương 8, dùng `scripts/start-resilience-demo.ps1` để giữ mode Kubernetes/giám sát. Entry point `start-backup-demo.ps1` cũng giữ mode đã chọn bằng cách chuyển sang script này khi cần. Backup nguồn Kubernetes vẫn phục hồi ra web Compose riêng; xem `RESILIENCE.md`.
 
+Nếu web vẫn chat được nhưng tạo backup báo **“Service chưa sẵn sàng cho backup: chat-…”**, kiểm tra chế độ chạy trước khi thử lại. Sau khi khởi động lại Docker, `docker compose up -d` có thể bật hai Chat Compose và Nginx Compose trong khi `mode.json` vẫn chọn Kubernetes; Pod cũ còn giữ IP hạ tầng trong hostAliases nên lỗi Redis. Web đi qua container đang sống, còn backup tìm heartbeat của Pod đã chết. Không xóa Redis key hoặc bỏ kiểm tra participant để né lỗi: điều đó có thể bỏ sót writer khi chốt mốc.
+
+Tại thư mục gốc, dùng một trong hai lệnh đồng bộ toàn bộ môi trường, đợi `READY` rồi mới tạo backup:
+
+```powershell
+# Giữ Kubernetes/HPA, làm mới địa chỉ hạ tầng của Pod:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-resilience-demo.ps1 -SkipBuild
+# Hoặc chủ động chọn Compose cho buổi demo chỉ sao lưu:
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-resilience-demo.ps1 -SkipBuild -Mode Compose
+```
+
+Chỉ chạy một lệnh, không chạy song song. Không khởi động thêm hai container Chat Compose sau khi đã chọn Kubernetes. Tạo nhóm mới không làm đổi chế độ triển khai; lỗi participant phải được xử lý ở môi trường chạy. Các bản backup đã thất bại vẫn giữ trạng thái lỗi; sau khi sửa hãy tạo bản mới.
+
 Đọc mục 1 để hiểu quy trình, mục 2 để demo trên web, rồi [BACKUP-CODE.md](BACKUP-CODE.md) để đọc từng phần code. Bài PostgreSQL A → bản nền → B → xóa B → lấy lại B nằm trong [BACKUP-POSTGRES.md](BACKUP-POSTGRES.md).
 
 ## 1. Một bản sao lưu giữ những gì?
@@ -35,6 +48,8 @@ Quy trình:
 **Snapshot Mongo** cho phép chép sau khi mở cửa nhưng vẫn đọc trạng thái ở T; tin mới sau T không lọt vào backup. Mỗi shard giữ cửa sổ lịch sử tối thiểu 3.600 giây; job giới hạn 30 phút. Lỗi snapshot quá cũ làm backup thất bại. Xem [MongoDB snapshot read concern](https://www.mongodb.com/docs/manual/reference/read-concern-snapshot/).
 
 **Outbox/Kafka**: sự kiện chưa publish nằm trong bản DB; sự kiện đã publish nhưng chưa xử lý nằm trong Kafka range. Bảng chống trùng cũng được khôi phục. Broker mới có offset riêng, nên phải ánh xạ bookmark trước khi chạy consumer. Không reset offset Kafka nguồn.
+
+Broker recovery trả được metadata/topic chưa có nghĩa bộ điều phối consumer group đã sẵn sàng. Trường hợp mọi consumer đã bắt kịp trước mốc sao lưu, các file Kafka có thể rỗng nhưng vẫn cần đặt offset phục hồi về 0. `restore-system.ps1` chờ coordinator của các group bằng lệnh describe chỉ đọc trước khi gọi importer; bước này hỗ trợ cả image importer cũ đã được pin trong bundle. Importer mới còn thử lại có giới hạn đối với lỗi coordinator tạm thời ở cấp group/partition và đọc lại offset để đối chiếu trước khi chạy ứng dụng. Không sửa manifest hoặc thay image ứng dụng của bản sao lưu để né lỗi.
 
 **File bất biến**: attachment `Attached` không bị worker hiện tại xóa hoặc ghi đè. Vì vậy chép bytes sau khi mở cửa vẫn lấy đúng file của snapshot. Upload dở/chưa gắn tin không thuộc bản phục hồi. Nếu bổ sung sửa/xóa file vĩnh viễn, phải thêm versioning hoặc thời gian giữ object trước khi xóa.
 

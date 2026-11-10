@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="1260" viewBox="0 0 2240 1260">
+<defs>
+<marker id="arrow-ink" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#19324D"/></marker>
+<marker id="arrow-muted" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#5B6E82"/></marker>
+<marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#2563EB"/></marker>
+<marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#8754C5"/></marker>
+<marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#D77A18"/></marker>
+<marker id="arrow-teal" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#078B83"/></marker>
+<marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#32835B"/></marker>
+<marker id="arrow-gray" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#7890A5"/></marker>
+</defs>
+<rect width="2240" height="1260" fill="white"/>
+<rect x="720" y="190" width="1470" height="890" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="740" y="222" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="start" fill="#19324D">BACKEND .NET 10  ·  DỊCH VỤ ĐỘC LẬP</text>
+<path d="M140,620 L170,620" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M390,620 L455,620" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M570,540 L570,235 L905,235 L905,250" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M570,540 L570,235 L1245,235 L1245,250" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M570,540 L570,235 L1950,235 L1950,250" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M665,635 L780,635" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M1030,635 L1120,635" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M905,360 L905,390" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1245,360 L1245,390" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1950,360 L1950,390" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1190,580 L1190,550 L1065,550 L1065,305 L1030,305" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1350,580 L1350,535 L1395,535 L1395,305 L1370,305" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1590,580 L1590,535 L1745,535 L1745,305 L1710,305" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1585,360 L1585,390 L1730,390 L1730,850 L1710,850" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1710,635 L1800,635" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1515,715 L1515,795" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1660,715 L1660,755 L1950,755 L1950,795" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M780,305 L750,305 L750,1005 L780,1005" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1120,305 L1090,305 L1090,925 L1150,925 L1150,960" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" marker-start="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1220,715 L1220,960" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" marker-start="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M2100,1005 L2140,1005 L2140,305 L2100,305" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M280,705 L280,855" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)" stroke-dasharray="7 5"/>
+<path d="M65,160 L123,160" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M395,160 L453,160" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M715,160 L773,160" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1085,160 L1143,160" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)"/>
+<text x="70" y="74.97999999999999" font-family="Arial, sans-serif" font-size="39" font-weight="700" text-anchor="start" fill="#19324D">KIẾN TRÚC TỔNG THỂ HỆ THỐNG &amp; HẠ TẦNG TRIỂN KHAI</text>
+<rect x="40" y="565" width="100" height="115" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="90.0" y="616.9" font-family="Arial, sans-serif" font-size="20" font-weight="700" text-anchor="middle" fill="#19324D">USER</text>
+<text x="90.0" y="642.9" font-family="Arial, sans-serif" font-size="15" text-anchor="middle" fill="#19324D">Người dùng</text>
+<rect x="170" y="525" width="220" height="180" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="280.0" y="579.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">ANGULAR 12</text>
+<text x="280.0" y="610.18" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">Chat / Danh bạ</text>
+<text x="280.0" y="639.18" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">Quản trị / Sao lưu</text>
+<text x="280.0" y="668.18" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">RxJS · WebRTC</text>
+<rect x="455" y="540" width="210" height="150" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="560.0" y="578.86" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">API GATEWAY</text>
+<text x="560.0" y="609.86" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">YARP · JWT</text>
+<text x="560.0" y="638.86" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">REST / SignalR</text>
+<text x="560.0" y="667.86" font-family="Arial, sans-serif" font-size="20" text-anchor="middle" fill="#19324D">Hangfire backup</text>
+<rect x="780" y="250" width="250" height="110" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="905.0" y="284.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">IDENTITY SERVICE</text>
+<text x="905.0" y="314.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Tài khoản · Bạn bè</text>
+<text x="905.0" y="342.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">JWT · Khóa / Vai trò</text>
+<rect x="1120" y="250" width="250" height="110" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1245.0" y="284.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">GROUP SERVICE</text>
+<text x="1245.0" y="314.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Nhóm · Thành viên</text>
+<text x="1245.0" y="342.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Role / Phê duyệt</text>
+<rect x="1460" y="250" width="250" height="110" rx="12" fill="#F5F0FC" stroke="#8754C5" stroke-width="1.7"/>
+<text x="1585.0" y="284.04" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">PRESENCE SERVICE</text>
+<text x="1585.0" y="314.04" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Heartbeat / lease</text>
+<text x="1585.0" y="342.04" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">gRPC · Redis TIME</text>
+<rect x="1800" y="250" width="300" height="110" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1950.0" y="284.36" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">NOTIFICATION SERVICE</text>
+<text x="1950.0" y="314.36" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Bộ đếm chưa đọc</text>
+<text x="1950.0" y="342.36" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">SignalR notifications</text>
+<path d="M780 405 C780 385,1030 385,1030 405 L1030 470 C1030 490,780 490,780 470 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M780 405 C780 425,1030 425,1030 405" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="905.0" y="441.04" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">identity_db</text>
+<text x="905.0" y="470.04" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">PostgreSQL · SQL Outbox</text>
+<path d="M1120 405 C1120 385,1370 385,1370 405 L1370 470 C1370 490,1120 490,1120 470 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M1120 405 C1120 425,1370 425,1370 405" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="1245.0" y="441.04" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">group_db</text>
+<text x="1245.0" y="470.04" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">PostgreSQL · SQL Outbox</text>
+<path d="M1800 405 C1800 385,2100 385,2100 405 L2100 470 C2100 490,1800 490,1800 470 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M1800 405 C1800 425,2100 425,2100 405" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="1950.0" y="441.04" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">notification_db</text>
+<text x="1950.0" y="470.04" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">Unread · processed_events</text>
+<rect x="780" y="580" width="250" height="110" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="905.0" y="614.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">NGINX</text>
+<text x="905.0" y="644.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Proxy / Load balancing</text>
+<text x="905.0" y="672.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">HTTP + WebSocket</text>
+<rect x="1120" y="580" width="590" height="135" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1415.0" y="613.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">CHAT SERVICE  ·  NHIỀU BẢN CHẠY</text>
+<text x="1415.0" y="643.18" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">SignalR chat / typing / video signaling</text>
+<text x="1415.0" y="671.18" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">REST lịch sử / ảnh / file · Mongo Outbox</text>
+<text x="1415.0" y="699.18" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Kubernetes 2–4 Pod hoặc Compose 2 container</text>
+<rect x="1800" y="580" width="300" height="135" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1950.0" y="614.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">MONGODB</text>
+<text x="1950.0" y="643.68" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">chat_history · 2 shards</text>
+<text x="1950.0" y="670.68" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">Message + Counter + Outbox</text>
+<text x="1950.0" y="697.68" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">Transaction / Idempotency</text>
+<rect x="1460" y="795" width="250" height="110" rx="12" fill="#EBF9F6" stroke="#078B83" stroke-width="1.7"/>
+<text x="1585.0" y="830.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">REDIS</text>
+<text x="1585.0" y="859.68" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">SignalR Backplane</text>
+<text x="1585.0" y="886.68" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">Presence / call / lease</text>
+<rect x="1800" y="795" width="300" height="110" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1950.0" y="829.68" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">SEAWEEDFS</text>
+<text x="1950.0" y="859.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Kho ảnh / file local</text>
+<text x="1950.0" y="887.68" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">S3 API nội bộ · Volume</text>
+<rect x="780" y="960" width="1320" height="95" rx="12" fill="#FFF6E9" stroke="#D77A18" stroke-width="1.7"/>
+<text x="1440.0" y="987.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">APACHE KAFKA  ·  KRaft  ·  XỬ LÝ BẤT ĐỒNG BỘ</text>
+<text x="1440.0" y="1017.18" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Identity → Group  |  Group → Chat + Notification  |  Chat → Notification</text>
+<text x="1440.0" y="1045.1799999999998" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#19324D">Transactional Outbox → at-least-once → consumer chống trùng / cập nhật bản sao</text>
+<rect x="170" y="855" width="220" height="95" rx="12" fill="#EBF9F6" stroke="#078B83" stroke-width="1.7"/>
+<text x="280.0" y="896.04" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">TRÌNH DUYỆT B</text>
+<text x="280.0" y="925.04" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#19324D">WebRTC audio / video</text>
+<rect x="445" y="780" width="250" height="170" rx="12" fill="#F5F0FC" stroke="#8754C5" stroke-width="1.7"/>
+<text x="570.0" y="818.76" font-family="Arial, sans-serif" font-size="18" font-weight="700" text-anchor="middle" fill="#19324D">RPC NGUỒN QUYỀN</text>
+<text x="570.0" y="846.76" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Gateway (backup),</text>
+<text x="570.0" y="872.76" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Group / Notification</text>
+<text x="570.0" y="898.76" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">→ Identity gRPC</text>
+<text x="570.0" y="924.76" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">JWT + AuthVersion</text>
+<rect x="50" y="1110" width="505" height="105" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="302.5" y="1143.22" font-family="Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle" fill="#19324D">GIÁM SÁT</text>
+<text x="302.5" y="1171.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Serilog → Seq · Prometheus → Grafana</text>
+<text x="302.5" y="1197.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Health / metrics / logs theo service &amp; Pod</text>
+<rect x="595" y="1110" width="505" height="105" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="847.5" y="1143.22" font-family="Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle" fill="#19324D">CHỊU LỖI</text>
+<text x="847.5" y="1171.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Polly timeout / retry / circuit breaker</text>
+<text x="847.5" y="1197.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Probes · HPA · Reconnect + REST lấy bù</text>
+<rect x="1140" y="1110" width="505" height="105" rx="12" fill="#F5F0FC" stroke="#8754C5" stroke-width="1.7"/>
+<text x="1392.5" y="1143.22" font-family="Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle" fill="#19324D">ĐỊNH DANH &amp; ĐỒNG BỘ</text>
+<text x="1392.5" y="1171.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">JWT / AuthVersion · GUID · Docker DNS</text>
+<text x="1392.5" y="1197.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">SQL xmin · Mongo transaction · lease / fencing</text>
+<rect x="1685" y="1110" width="505" height="105" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1937.5" y="1143.22" font-family="Arial, sans-serif" font-size="21" font-weight="700" text-anchor="middle" fill="#19324D">SAO LƯU &amp; PHỤC HỒI</text>
+<text x="1937.5" y="1171.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Hangfire · PG base + WAL / PITR · Standby</text>
+<text x="1937.5" y="1197.22" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#19324D">Checkpoint Mongo / Kafka / object → Web riêng</text>
+<text x="50" y="125.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#5B6E82">ChatApp · Microservices + Event-driven · Thành phần và luồng giao tiếp chính</text>
+<text x="555.0" y="503.46" font-family="Arial, sans-serif" font-size="19" text-anchor="middle" fill="#2563EB">HTTP / WebSocket + JWT</text>
+<text x="1075.0" y="509.12" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#32835B">Ba database riêng trên một PostgreSQL instance</text>
+<text x="1390.0" y="569.12" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#8754C5">gRPC: tài khoản / thành viên / trạng thái online</text>
+<text x="1755.0" y="619.78" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#078B83">Driver</text>
+<text x="1375.0" y="762.12" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#078B83">Pub/Sub · Backplane</text>
+<text x="1945.0" y="744.12" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#078B83">S3 / binary qua REST</text>
+<text x="1240" y="903.12" font-family="Arial, sans-serif" font-size="18" text-anchor="start" fill="#D77A18">Outbox / consumer</text>
+<text x="280.0" y="773.12" font-family="Arial, sans-serif" font-size="18" text-anchor="middle" fill="#078B83">Media trực tiếp hoặc TURN relay</text>
+<text x="235.0" y="813.28" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#5B6E82">STUN / TURN tùy chọn</text>
+<text x="235.0" y="843.28" font-family="Arial, sans-serif" font-size="17" text-anchor="middle" fill="#5B6E82">Signaling qua Chat</text>
+<text x="50" y="1237.78" font-family="Arial, sans-serif" font-size="17" text-anchor="start" fill="#5B6E82">Màu chỉ loại giao tiếp; mũi tên hai đầu thể hiện trao đổi hai chiều. Các nhánh là luồng logic, không biểu thị mỗi request đi qua mọi service.</text>
+<text x="135" y="166.12" font-family="Arial, sans-serif" font-size="18" text-anchor="start" fill="#2563EB">REST / SignalR</text>
+<text x="465" y="166.12" font-family="Arial, sans-serif" font-size="18" text-anchor="start" fill="#8754C5">gRPC nội bộ</text>
+<text x="785" y="166.12" font-family="Arial, sans-serif" font-size="18" text-anchor="start" fill="#D77A18">Kafka / sự kiện</text>
+<text x="1155" y="166.12" font-family="Arial, sans-serif" font-size="18" text-anchor="start" fill="#078B83">Dữ liệu / Pub/Sub / media</text>
+<text x="2180" y="166.12" font-family="Arial, sans-serif" font-size="18" text-anchor="end" fill="#5B6E82">01 / 02  ·  Tổng thể hệ thống</text>
+</svg>

@@ -77,7 +77,41 @@ try
         await producer.ProduceAsync(new TopicPartition(p.Topic,p.Partition),new Message<string,string>{Key="late",Value="AFTER CHECKPOINT"});
     await KafkaBackup.ExportAsync(source,checkpoint,root,CancellationToken.None);
     Check("Export excludes records after checkpoint", !Directory.EnumerateFiles(root,"*.jsonl").Any(f=>File.ReadAllText(f).Contains("AFTER CHECKPOINT")));
-    await KafkaBackup.ImportAsync(target,root,CancellationToken.None);
+    // A fully caught-up source exports no pending records. No ProduceAsync call
+    // occurs during import, so the first group offset request hits a cold coordinator.
+    var emptyCheckpoint = new KafkaBackup.Checkpoint(checkpoint.Partitions.Select(p =>
+        p with { Start=p.End, Groups=p.Groups.ToDictionary(g=>g.Key,g=>p.End) }).ToArray());
+    var emptyRoot=Path.Combine(root,"empty");
+    await KafkaBackup.ExportAsync(source,emptyCheckpoint,emptyRoot,CancellationToken.None);
+    try { await KafkaBackup.ImportAsync(target,emptyRoot,CancellationToken.None); }
+    catch (AlterConsumerGroupOffsetsException ex)
+    {
+        foreach (var result in ex.Results)
+        {
+            Console.Error.WriteLine($"Cold restore offset failure: group={result.Group}, error={result.Error.Code}: {result.Error.Reason}");
+            foreach (var partition in result.Partitions.Where(p=>p.Error.IsError))
+                Console.Error.WriteLine($"Partition {partition.TopicPartition}: {partition.Error.Code}: {partition.Error.Reason}");
+        }
+        throw;
+    }
+    foreach(var p in emptyCheckpoint.Partitions)
+        foreach(var group in p.Groups.Keys)
+        {
+            using var consumer=Reader(target,group);
+            Check($"Caught-up backup {group}/{p.Topic}/{p.Partition}: restored offset is zero",
+                consumer.Committed([new TopicPartition(p.Topic,p.Partition)],TimeSpan.FromSeconds(5)).Single().Offset.Value==0);
+        }
+    try { await KafkaBackup.ImportAsync(target,root,CancellationToken.None); }
+    catch (AlterConsumerGroupOffsetsException ex)
+    {
+        foreach (var result in ex.Results)
+        {
+            Console.Error.WriteLine($"Restore offset failure: group={result.Group}, error={result.Error.Code}: {result.Error.Reason}");
+            foreach (var partition in result.Partitions.Where(p=>p.Error.IsError))
+                Console.Error.WriteLine($"Partition {partition.TopicPartition}: {partition.Error.Code}: {partition.Error.Reason}");
+        }
+        throw;
+    }
     foreach (var p in checkpoint.Partitions)
     {
         using var reader=Reader(target,"test-read-"+suffix);

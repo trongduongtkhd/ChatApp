@@ -1,0 +1,115 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2240" height="1260" viewBox="0 0 2240 1260">
+<defs>
+<marker id="arrow-ink" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#19324D"/></marker>
+<marker id="arrow-muted" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#5B6E82"/></marker>
+<marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#2563EB"/></marker>
+<marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#8754C5"/></marker>
+<marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#D77A18"/></marker>
+<marker id="arrow-teal" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#078B83"/></marker>
+<marker id="arrow-green" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#32835B"/></marker>
+<marker id="arrow-gray" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5 L1 9 z" fill="#7890A5"/></marker>
+</defs>
+<rect width="2240" height="1260" fill="white"/>
+<rect x="710" y="190" width="1480" height="890" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="730" y="222" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="start" fill="#19324D">BACKEND · .NET 10</text>
+<path d="M140,637 L180,637" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M385,637 L465,637" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M670,637 L780,637" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M1030,637 L1120,637" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)" marker-start="url(#arrow-blue)"/>
+<path d="M567,565 L567,240 L905,240 L905,260" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M567,565 L567,240 L1245,240 L1245,260" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M567,565 L567,240 L1955,240 L1955,260" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M905,365 L905,405" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1245,365 L1245,405" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1955,365 L1955,405" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1190,580 L1190,540 L1065,540 L1065,312 L1030,312" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1350,580 L1350,540 L1400,540 L1400,312 L1370,312" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1590,580 L1590,540 L1745,540 L1745,312 L1710,312" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M1585,365 L1585,410 L1730,410 L1730,845 L1710,845" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1710,637 L1800,637" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1515,705 L1515,790" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M1660,705 L1660,750 L1955,750 L1955,790" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)"/>
+<path d="M780,312 L750,312 L750,1008 L780,1008" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1120,312 L1090,312 L1090,930 L1150,930 L1150,965" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" marker-start="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1220,705 L1220,965" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" marker-start="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M2110,1008 L2150,1008 L2150,312 L2110,312" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M282,705 L282,875" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)" marker-start="url(#arrow-teal)" stroke-dasharray="7 5"/>
+<path d="M65,157 L125,157" fill="none" stroke="#2563EB" stroke-width="2.3" marker-end="url(#arrow-blue)"/>
+<path d="M440,157 L500,157" fill="none" stroke="#8754C5" stroke-width="2.3" marker-end="url(#arrow-purple)"/>
+<path d="M740,157 L800,157" fill="none" stroke="#D77A18" stroke-width="2.3" marker-end="url(#arrow-orange)" stroke-dasharray="7 5"/>
+<path d="M1120,157 L1180,157" fill="none" stroke="#078B83" stroke-width="2.3" marker-end="url(#arrow-teal)"/>
+<text x="70" y="75.3" font-family="Arial, sans-serif" font-size="40" font-weight="700" text-anchor="start" fill="#19324D">TỔNG THỂ HỆ THỐNG &amp; HẠ TẦNG TRIỂN KHAI</text>
+<rect x="40" y="590" width="100" height="95" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="90.0" y="644.86" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">USER</text>
+<rect x="180" y="565" width="205" height="140" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="282.5" y="627.82" font-family="Arial, sans-serif" font-size="26" font-weight="700" text-anchor="middle" fill="#19324D">ANGULAR 12</text>
+<text x="282.5" y="660.82" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">Giao diện web</text>
+<rect x="465" y="565" width="205" height="140" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="567.5" y="627.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">API GATEWAY</text>
+<text x="567.5" y="660.18" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">YARP · JWT</text>
+<rect x="780" y="260" width="250" height="105" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="905.0" y="304.86" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">IDENTITY SERVICE</text>
+<text x="905.0" y="336.86" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Tài khoản · Bạn bè</text>
+<rect x="1120" y="260" width="250" height="105" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1245.0" y="304.86" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">GROUP SERVICE</text>
+<text x="1245.0" y="336.86" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Nhóm · Thành viên</text>
+<rect x="1460" y="260" width="250" height="105" rx="12" fill="#F5F0FC" stroke="#8754C5" stroke-width="1.7"/>
+<text x="1585.0" y="304.54" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">PRESENCE SERVICE</text>
+<text x="1585.0" y="336.54" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Trạng thái online</text>
+<rect x="1800" y="260" width="310" height="105" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1955.0" y="304.86" font-family="Arial, sans-serif" font-size="23" font-weight="700" text-anchor="middle" fill="#19324D">NOTIFICATION SERVICE</text>
+<text x="1955.0" y="336.86" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Số tin chưa đọc</text>
+<path d="M780 420 C780 400,1030 400,1030 420 L1030 485 C1030 505,780 505,780 485 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M780 420 C780 440,1030 440,1030 420" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="905.0" y="455.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">POSTGRESQL</text>
+<text x="905.0" y="487.18" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">identity_db · Outbox</text>
+<path d="M1120 420 C1120 400,1370 400,1370 420 L1370 485 C1370 505,1120 505,1120 485 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M1120 420 C1120 440,1370 440,1370 420" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="1245.0" y="455.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">POSTGRESQL</text>
+<text x="1245.0" y="487.18" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">group_db · Outbox</text>
+<path d="M1800 420 C1800 400,2110 400,2110 420 L2110 485 C2110 505,1800 505,1800 485 Z" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/><path d="M1800 420 C1800 440,2110 440,2110 420" fill="none" stroke="#32835B" stroke-width="1.3"/>
+<text x="1955.0" y="455.18" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle" fill="#19324D">POSTGRESQL</text>
+<text x="1955.0" y="487.18" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">notification_db</text>
+<rect x="780" y="580" width="250" height="110" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="905.0" y="628.64" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#19324D">NGINX</text>
+<text x="905.0" y="660.64" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Proxy / cân bằng tải</text>
+<rect x="1120" y="580" width="590" height="125" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="1415.0" y="635.28" font-family="Arial, sans-serif" font-size="29" font-weight="700" text-anchor="middle" fill="#19324D">CHAT SERVICE</text>
+<text x="1415.0" y="670.28" font-family="Arial, sans-serif" font-size="24" text-anchor="middle" fill="#19324D">SignalR · Nhiều bản chạy</text>
+<rect x="1800" y="580" width="310" height="125" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1955.0" y="620.14" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#19324D">MONGODB</text>
+<text x="1955.0" y="653.14" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">Tin nhắn · 2 shard</text>
+<text x="1955.0" y="684.14" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">Outbox</text>
+<rect x="1460" y="790" width="250" height="110" rx="12" fill="#EBF9F6" stroke="#078B83" stroke-width="1.7"/>
+<text x="1585.0" y="838.64" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#19324D">REDIS</text>
+<text x="1585.0" y="870.64" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#19324D">Backplane · Presence</text>
+<rect x="1800" y="790" width="310" height="110" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1955.0" y="838.14" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#19324D">SEAWEEDFS</text>
+<text x="1955.0" y="871.14" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">Ảnh / File · S3 API</text>
+<rect x="780" y="965" width="1330" height="85" rx="12" fill="#FFF6E9" stroke="#D77A18" stroke-width="1.7"/>
+<text x="1445.0" y="1000.64" font-family="Arial, sans-serif" font-size="27" font-weight="700" text-anchor="middle" fill="#19324D">APACHE KAFKA</text>
+<text x="1445.0" y="1033.6399999999999" font-family="Arial, sans-serif" font-size="22" text-anchor="middle" fill="#19324D">Sự kiện bất đồng bộ</text>
+<rect x="180" y="875" width="205" height="85" rx="12" fill="#EBF9F6" stroke="#078B83" stroke-width="1.7"/>
+<text x="282.5" y="924.54" font-family="Arial, sans-serif" font-size="22" font-weight="700" text-anchor="middle" fill="#19324D">TRÌNH DUYỆT B</text>
+<rect x="50" y="1120" width="660" height="100" rx="12" fill="#EEF5FF" stroke="#2563EB" stroke-width="1.7"/>
+<text x="380.0" y="1162.0" font-family="Arial, sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#19324D">TRIỂN KHAI</text>
+<text x="380.0" y="1196.0" font-family="Arial, sans-serif" font-size="23" text-anchor="middle" fill="#19324D">Docker Compose · Kubernetes HPA</text>
+<rect x="790" y="1120" width="660" height="100" rx="12" fill="#F6F8FB" stroke="#7890A5" stroke-width="1.7"/>
+<text x="1120.0" y="1162.0" font-family="Arial, sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#19324D">GIÁM SÁT &amp; CHỊU LỖI</text>
+<text x="1120.0" y="1196.0" font-family="Arial, sans-serif" font-size="23" text-anchor="middle" fill="#19324D">Prometheus / Grafana · Polly</text>
+<rect x="1530" y="1120" width="660" height="100" rx="12" fill="#F0F8F1" stroke="#32835B" stroke-width="1.7"/>
+<text x="1860.0" y="1162.0" font-family="Arial, sans-serif" font-size="25" font-weight="700" text-anchor="middle" fill="#19324D">SAO LƯU &amp; PHỤC HỒI</text>
+<text x="1860.0" y="1196.0" font-family="Arial, sans-serif" font-size="23" text-anchor="middle" fill="#19324D">Hangfire · PITR</text>
+<text x="50" y="125.82" font-family="Arial, sans-serif" font-size="23" text-anchor="start" fill="#5B6E82">ChatApp · Microservices &amp; Event-driven</text>
+<rect x="1105" y="526" width="85" height="28" rx="4" fill="#F5F0FC"/>
+<text x="1147.5" y="547.14" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#8754C5">gRPC</text>
+<rect x="1357" y="526" width="85" height="28" rx="4" fill="#F5F0FC"/>
+<text x="1399.5" y="547.14" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#8754C5">gRPC</text>
+<rect x="1625" y="526" width="85" height="28" rx="4" fill="#F5F0FC"/>
+<text x="1667.5" y="547.14" font-family="Arial, sans-serif" font-size="21" text-anchor="middle" fill="#8754C5">gRPC</text>
+<text x="1250" y="940.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#D77A18">Outbox Publisher</text>
+<text x="315" y="799.98" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#078B83">WebRTC media</text>
+<text x="140" y="164.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#2563EB">REST / SignalR</text>
+<text x="515" y="164.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#8754C5">gRPC</text>
+<text x="815" y="164.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#D77A18">Sự kiện Kafka</text>
+<text x="1195" y="164.48" font-family="Arial, sans-serif" font-size="22" text-anchor="start" fill="#078B83">Dữ liệu / Pub/Sub</text>
+<text x="2180" y="164.14" font-family="Arial, sans-serif" font-size="21" text-anchor="end" fill="#5B6E82">Triển khai local</text>
+</svg>

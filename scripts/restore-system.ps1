@@ -11,6 +11,34 @@ function Invoke-RecoveryCompose {
     param([string[]]$ComposeArgs)
     return Invoke-PgDocker (@('compose','--env-file',(Join-Path $script:PgBackupProjectRoot '.env'),'-p',$project,'-f',$composePath) + $ComposeArgs)
 }
+function Wait-RecoveryKafkaCoordinators {
+    param([string]$CheckpointFile)
+    $checkpoint = Get-Content -LiteralPath $CheckpointFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    $groups = @($checkpoint.partitions | ForEach-Object {
+        foreach ($property in $_.groups.PSObject.Properties) { $property.Name }
+    } | Sort-Object -Unique)
+    foreach ($group in $groups) {
+        if ($group -notmatch '^[a-z0-9][a-z0-9-]{0,100}$') { throw 'Invalid recovery consumer group.' }
+        $deadline = [DateTime]::UtcNow.AddSeconds(60)
+        while ($true) {
+            try {
+                # Topic metadata readiness does not imply group coordinator readiness.
+                # Describe warms the coordinator without joining a consumer group or
+                # changing offsets. This also supports backups pinned to older importers.
+                $details = Invoke-PgDocker @('exec','chatapp-recovery-kafka','/opt/kafka/bin/kafka-consumer-groups.sh',
+                    '--bootstrap-server','kafka:29092','--describe','--group',$group,'--state','--timeout','10000')
+                if ($details -match '(?i)not coordinator|coordinator.*(unavailable|not available|loading)|timed out|timeout') {
+                    throw "Kafka coordinator not ready: $details"
+                }
+                Write-Host "Recovery Kafka coordinator ready: $group"
+                break
+            } catch {
+                if ([DateTime]::UtcNow -ge $deadline -or $_.Exception.Message -notmatch '(?i)coordinator|timed out|timeout') { throw }
+                Start-Sleep -Milliseconds 500
+            }
+        }
+    }
+}
 function Remove-RecoveryStack {
     # Only resources with this exact project label, fixed generated prefix and
     # the known PostgreSQL restore label can be removed. Never use source down -v.
@@ -117,6 +145,7 @@ try {
     do {
         try { Invoke-PgDocker @('exec','chatapp-recovery-kafka','/opt/kafka/bin/kafka-topics.sh','--bootstrap-server','kafka:29092','--list') | Out-Null; break } catch { if([DateTime]::UtcNow -gt $deadline){throw}; Start-Sleep -Seconds 1 }
     } while($true)
+    Wait-RecoveryKafkaCoordinators (Join-Path $directory 'kafka/checkpoint.json')
     Invoke-RecoveryCompose @('run','--rm','--no-deps','mongo-import') | Out-Null
     Invoke-RecoveryCompose @('run','--rm','--no-deps','kafka-import') | Out-Null
     Invoke-RecoveryCompose @('up','-d','identity','group','notification','presence','chat','gateway','web') | Out-Null

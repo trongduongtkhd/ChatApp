@@ -27,6 +27,37 @@ Cập nhật sau mỗi phần. Phần "Ghi chú cho báo cáo" dùng để viế
 ## Ghi chú cho báo cáo
 (Sau mỗi phần ghi: khái niệm đã dùng, thuộc chương nào, file code minh họa, cách demo.)
 
+### Hướng dẫn người dùng demo chương 8 (10/11/2026)
+
+- Bổ sung `docs/DEMO-CHUONG-8.md`: phân biệt terminal/process/container/Pod; chuẩn bị hai browser, readiness/EndpointSlice/liveness, xóa một Pod và reconnect, dừng/bật Group bằng control script, tạo RPC đọc song song có xác thực để quan sát Polly và log Seq, tải history HPA và dọn fixture. Mỗi bài có kết quả mong đợi, lệnh hồi phục và lời thuyết trình.
+- Giữ giới hạn đúng: circuit riêng từng process/dependency, không tự bật Group; readiness không đóng WebSocket cũ; Pod thay thế không đồng nghĩa tăng restartCount; HPA CPU theo requests và scale-down cần thời gian. Không chạy lại suite backup chỉ để demo chương 8.
+- Kiểm tra chỉ đọc tại thời điểm viết: hai Pod `chat-fb6976dc-*` 1/1 Running, restart 0; HPA hai replica, CPU 8%/60%; web nguồn/Nginx ready/Grafana/Prometheus/Seq trả 200; Node 14.21.3. Không chủ động dừng service, xóa Pod hoặc tạo tải thay người dùng trong lượt hướng dẫn này. Các block PowerShell được kiểm cú pháp, không thực thi fault.
+
+### Đồng bộ runtime khi tạo backup lượt tiếp theo (10/11/2026)
+
+- Hai lần tạo backup `20261110T112558Z-7be5abc6`, `20261110T112620Z-70aa41d2` thất bại trước bản nền: thiếu heartbeat `chat-59fb7747f9-6hl5k`. Khi kiểm tra, web/Nginx dùng hai Chat Compose đang chạy, nhưng `mode.json` vẫn chọn Kubernetes. Hai Pod cũ CrashLoopBackOff vì Redis đổi IP sau khi Docker bật lại; không phải do tạo nhóm mới hoặc Kafka restore.
+- Dùng script có sẵn `setup-chat-k8s.cjs` cập nhật hostAliases, chờ hai Pod mới Ready rồi dừng hai Chat Compose. Tạo lại Nginx với overlay Kubernetes; bật lại giám sát và operations agent. Registry Redis khớp Identity/Group/Notification và đúng hai Pod mới. Không bỏ guard participant, không sửa khóa Redis để giả sẵn sàng, không đổi dữ liệu nguồn.
+- Kiểm thử qua API quản trị thật ở web 4200: tạo hai backup liên tiếp `20261110T113220Z-33e7fb46`, `20261110T113400Z-dcd8bcb0`; cả hai complete và verify checksum thành công. Mỗi snapshot có hai tin và một attachment của nhóm mới `01a1c532-fb00-7748-9548-c31bff0c7273`. Không tạo tài khoản/nhóm/tin thử bổ sung, không xóa nhóm hoặc dựng recovery thay người dùng. Báo cáo ở `infra/backups/runtime/repeat-backup-result.json`.
+- Khái niệm chương 6/7: coordinator phải chờ đúng tập writer và đúng generation để chốt mốc nhất quán; web còn chat được không chứng minh tập participant backup đã khớp. Cập nhật BACKUP.md cách khởi động đồng bộ bằng `start-resilience-demo.ps1 -SkipBuild`, hoặc chọn rõ `-Mode Compose`; đợi READY. Chạy `docker compose up -d` riêng sau khi chọn Kubernetes có thể tái tạo tình trạng lệch mode.
+- Demo lỗi: khi thiếu heartbeat hoặc runtime không khớp, backup phải báo thất bại, không công bố bundle thành công. Sau khi đồng bộ runtime, tạo bản mới; giữ nguyên các dòng lỗi cũ để chẩn đoán. Không sửa backend/frontend nên không cần build lại; whitespace check hai tài liệu qua.
+
+### Sửa phục hồi Kafka với broker mới và không còn sự kiện chờ (10/11/2026)
+
+- Bản `20261110T085739Z-805aa277` phục hồi PostgreSQL/Mongo được nhưng Kafka importer dừng ở `AlterConsumerGroupOffsetsException`. Đã tái hiện trên broker thử riêng: lỗi `NotCoordinatorForGroup` nằm ở từng partition, dù lỗi cấp group là `NoError`. Bản backup đã bắt kịp toàn bộ offset nên không có record cần produce; broker mới chưa sẵn sàng coordinator khi lần đầu đặt offset.
+- `KafkaBackup.ImportAsync` thêm retry tối đa khoảng 60s cho lỗi coordinator/transport tạm thời, request timeout 5s; kiểm cả lỗi group và partition, không nuốt lỗi vĩnh viễn. Sau khi đặt offset, đọc lại từng bookmark và từ chối mismatch. `scripts/restore-system.ps1` chờ coordinator bằng describe chỉ đọc trước importer, nên sửa được cả bản backup đang pin image cũ; không thay manifest/image IDs của bundle. Consumer ứng dụng chỉ khởi động sau khi import xong.
+- Bổ sung ca hồi quy backup không có record chờ vào `scripts/kafka-backup-test.cs`. Ca mới thất bại trước bản sửa, sau bản sửa cả 64 kiểm tra qua; gồm ánh xạ offset 0, nhiều group/partition, nội dung/thứ tự, loại sự kiện sau mốc, chặn target có dữ liệu và source boundary sai. Hai broker thử được dọn trong finally, Kafka nguồn không bị reset.
+- Build toàn solution vào `infra/backups/runtime/repair-solution` để không đụng DLL của dịch vụ local đang chạy: 0 lỗi, hai cảnh báo MessagePack NU1902 có sẵn. PowerShell parser và whitespace checks qua; không sửa frontend/package npm.
+- Đã chạy lại phục hồi đúng bundle vào project `chatapp-recovery`, trạng thái thực `ready`, web 4201 và source 4200 cùng HTTP 200. Sáu collection Mongo khớp catalog: messages 256, message_keys 256, conversation_state 14, outbox_messages 256, system_metadata 2, attachments 3. PostgreSQL recovery có một nhóm không còn trong nguồn, đúng tình huống xóa nhóm thử. Không đăng nhập hoặc gửi tin thay người dùng.
+- Edge headless riêng xác nhận form username/password và banner `BẢN PHỤC HỒI RIÊNG`; ảnh/report ở runtime `recovery-fixed-login.png`, `recovery-fixed-ui.json`. Giữ môi trường recovery đang chạy để người dùng tiếp tục bước đối chiếu; không ghi đè hoặc dọn dữ liệu nguồn. Wrapper chạy lại phục hồi có dùng cùng `.worker.lock` và chỉ cập nhật `recovery.json` thành ready sau khi script xác nhận web riêng hoạt động.
+
+### Khôi phục nhánh Chat local trước demo sao lưu (10/11/2026)
+
+- Hiện tượng: web 4200 tải được nhóm, Identity `/api/users/me` trả 200, nhưng Gateway `/hubs/chat` trả 502. Nginx đã dừng nên cổng 5080 không có dịch vụ nghe; hai Chat container Compose trả readiness 200 nhưng registry mode vẫn chọn Kubernetes.
+- Hai Chat Pod cũ CrashLoopBackOff do `hostAliases` chứa IP hạ tầng trước khi Docker khởi động lại. Redis trong Pod là `172.21.0.6`, Redis thật đã chuyển sang `172.21.0.8`; Mongo/Kafka/Presence cũng đổi IP.
+- Đã chạy `node scripts/setup-chat-k8s.cjs` để cập nhật địa chỉ hiện tại bằng script có sẵn. Script chờ Pod Ready rồi dừng hai Chat Compose và ghi mode Kubernetes. Bật lại Nginx bằng overlay `docker-compose.k8s.yml`, bộ giám sát Compose và operations agent. Không sửa mã ứng dụng, không xóa database/volume, không tạo dữ liệu chat thử.
+- Kiểm tra: hai Pod Running/Ready, không restart; HPA đọc được CPU (40% so với target 60% tại lần kiểm tra), số bản 2 trong giới hạn 2–4. Registry sao lưu có identity/group/notification và đúng hai Pod hiện tại, không còn heartbeat Chat Compose. Nginx 5080 live/ready, Gateway 5000 ready, web 4200, Grafana/Prometheus/Seq và operations agent đều HTTP 200. `/hubs/chat` qua Nginx/Gateway/web trả 401 khi cố ý không gửi JWT, thay cho lỗi kết nối/502; chưa thực hiện thao tác chat có xác thực thay người dùng.
+- Lần chạy sau dùng `scripts/start-resilience-demo.ps1 -SkipBuild` khi binary/images đã đúng phiên bản để đồng bộ hạ tầng, Pod, Nginx và mode. Chỉ bật các terminal .NET hoặc hai Chat container chưa đủ cho đường Gateway → Nginx → Chat; không để hai mode cùng phục vụ nguồn.
+
 ### Phần 12 — Chương 8: chịu lỗi, giám sát và HPA (01/11/2026)
 
 - Hoàn thành cả bảy bước đã duyệt: health/probes, Serilog/Seq, Polly retry/circuit, Prometheus/Grafana/cảnh báo, Kubernetes Chat, tương thích backup và HPA CPU. Bản đồ code, lệnh chạy/test, cách tạo lỗi và giới hạn nằm trong `docs/RESILIENCE.md`.
